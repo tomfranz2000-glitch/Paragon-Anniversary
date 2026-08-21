@@ -10,6 +10,20 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class InstallationContractTests(unittest.TestCase):
+    def test_documentation_has_no_private_scratchpad_paths(self):
+        for base, dirs, names in os.walk(ROOT):
+            dirs[:] = [name for name in dirs if not name.startswith(".")]
+            for name in names:
+                if not name.lower().endswith(".md"):
+                    continue
+                path = os.path.join(base, name)
+                with open(path, encoding="utf-8") as handle:
+                    text = handle.read().lower().replace("\\", "/")
+                self.assertNotIn(
+                    "scratchpad/", text,
+                    "%s references a private, unshipped scratchpad path"
+                    % os.path.relpath(path, ROOT))
+
     def test_branch_install_guide_names_the_real_pipeline(self):
         with open(os.path.join(ROOT, "doc", "INSTALL.md"), encoding="utf-8") as handle:
             guide = handle.read()

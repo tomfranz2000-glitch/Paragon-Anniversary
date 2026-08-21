@@ -3079,10 +3079,13 @@ The three keys describing the removed spender (`TUTORIAL_POINTS`,
    milestone 1400 is formatted into step 6; the help button ends at 0.5 both
    on Finish and on the panel being closed mid-tour.
 
-Harness kept at `scratchpad/tutorial_harness.lua`. Writing it turned up a
-Lua trap worth remembering: **`X and nil or Y` always evaluates to `Y`**,
-because `X and nil` is falsy -- the option flags in the first draft silently
-did nothing.
+These were one-off development harnesses and are not shipped or required by
+the installer.
+
+The temporary harness used during this investigation turned up a Lua trap
+worth remembering: **`X and nil or Y` always evaluates to `Y`**, because
+`X and nil` is falsy -- the option flags in the first draft silently did
+nothing.
 
 **These are loose addon files -- no MPQ rebuild. `/reload` is enough.**
 
@@ -3168,9 +3171,9 @@ The tour no longer quotes the milestone count or the level cap -- both were
 promises the copy had no business making. Asserted in the test suite, not just
 edited.
 
-### Test suite
+### Headless regression checks
 
-`scratchpad/test_tutorial.py` (22 assertions) now also covers the sizing:
+The headless tutorial regression pass also covered the sizing:
 `Show()` is logged before the description's `SetText` *and* before its first
 measurement; the deferred pass grows 170 -> 360 on a realized measurement and
 refuses to shrink on a bad one; a runaway measurement clamps at 600; the
@@ -3254,19 +3257,19 @@ the level actually moved and repaints otherwise.
 again, once you have a tail -- with the addition that only the next few are
 visible ahead of it.
 
-### Tests
+### Headless regression checks
 
-`scratchpad/test_track.py`, 25 assertions, driven through the real
-`UIParagon_RebuildRewardTrack` rather than a copy of the selection logic:
-the split at paragon 0 / 25 / 100 / 1375 / max, the racial node being visible
-from the moment it is earned onward, a level-up extending the tail and
+The headless reward-track regression pass drove the real
+`UIParagon_RebuildRewardTrack` rather than a copy of the selection logic. It
+covered the split at paragon 0 / 25 / 100 / 1375 / max; the racial node being
+visible from the moment it is earned onward; a level-up extending the tail and
 advancing the head, centring at x=185 for a short strip versus left-aligned and
 scrolled-to-the-end for a long one, lock states, and -- the regression guard
 for the bug above -- that a deliberately dimmed section, clipper and node all
 come back at alpha 1 after a rebuild.
 
-`test_tutorial.py` is at 27, including that the track and clipper sit at alpha 1
-on every step while the banner still dims.
+The tutorial regression pass additionally checked that the track and clipper
+sit at alpha 1 on every step while the banner still dims.
 
 ## 2w. The paladin aura bar vs the Paragon frames (2026-08-20)
 
