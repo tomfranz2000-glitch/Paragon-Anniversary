@@ -173,7 +173,7 @@ local function UpdatePlayerExperience(player, paragon, source_type, entry)
     end
 
     -- Check minimum level requirement
-    local min_level = tonumber(Config:GetByField("MINIMUM_LEVEL_FOR_PARAGON_XP")) or 0
+    local min_level = tonumber(Config:GetByField("MINIMUM_LEVEL_FOR_PARAGON_XP")) or 80
     if player:GetLevel() < min_level then
         return false
     end

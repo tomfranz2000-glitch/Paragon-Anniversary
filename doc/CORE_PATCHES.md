@@ -1898,9 +1898,8 @@ would have made the DK roughly a third of every other class.
 Zero mana for warrior/rogue/DK is **correct, not a hole**: those classes gain
 no mana from levelling at all. They draw the three largest health numbers.
 
-**Scale.** `PARAGON_LEVEL_CAP` is **10000** on this realm (the Lua default
-constant in `paragon_constant.lua:293` says 999, but the live
-`acore_ale.paragon_config` row is 10000), so the node tops out at **ten**
+**Scale.** `PARAGON_LEVEL_CAP` is **10000** in both the Anniversary preset and
+the live `acore_ale.paragon_config` row, so the node tops out at **ten**
 lifetimes, not one. Owner-approved: "anything above 2000 is not realistically
 achievable anyway."
 

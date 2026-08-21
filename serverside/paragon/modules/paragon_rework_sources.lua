@@ -67,7 +67,7 @@ end
 --- Returns share_multiplier (applied to the pool value) and the list of
 --- eligible members other than the killer.
 local MIN_LEVEL = function()
-    return tonumber(Config:GetByField("MINIMUM_LEVEL_FOR_PARAGON_XP")) or 0
+    return tonumber(Config:GetByField("MINIMUM_LEVEL_FOR_PARAGON_XP")) or 80
 end
 
 local GROUP_BONUS = { [3] = 1.166, [4] = 1.3 }

@@ -125,8 +125,8 @@ The **Paragon System** introduces an endgame progression mechanic for AzerothCor
 ### 🔄 **Dual-Mode System**
 
 Configure `LEVEL_LINKED_TO_ACCOUNT` in `paragon_config`:
-- **`0` (Default)**: Character-linked - Each character has independent progression
-- **`1`**: Account-linked - All characters on account share level/XP but have separate stat investments
+- **`0`**: Character-linked - Each character has independent progression
+- **`1` (Anniversary default)**: Account-linked - All characters on account share level/XP but have separate stat investments
 
 ---
 
@@ -162,18 +162,21 @@ Configure the system via database entries in `paragon_config`:
 | Field | Description | Default |
 |-------|-------------|---------|
 | `ENABLE_PARAGON_SYSTEM` | Enable/disable the entire system | `1` |
-| `LEVEL_LINKED_TO_ACCOUNT` | Character-linked (0) vs Account-linked (1) mode | `0` |
-| `PARAGON_LEVEL_CAP` | Maximum paragon level (0 = unlimited) | `999` |
-| `MINIMUM_LEVEL_FOR_PARAGON_XP` | Minimum character level to earn paragon XP | `0` |
+| `LEVEL_LINKED_TO_ACCOUNT` | Character-linked (0) vs Account-linked (1) mode | `1` |
+| `PARAGON_LEVEL_CAP` | Maximum paragon level (0 = unlimited) | `10000` |
+| `MINIMUM_LEVEL_FOR_PARAGON_XP` | Minimum character level to earn paragon XP | `80` |
+| `LEVEL_UP_ANIMATION` | Spell visual played on a Paragon level-up | `64785` |
 
 ### Progression Settings
 
 | Field | Description | Default |
 |-------|-------------|---------|
-| `BASE_MAX_EXPERIENCE` | Base XP per level (multiplied by level) | `1000` |
+| `BASE_MAX_EXPERIENCE` | XP required for the first Paragon level | `30000` |
 | `POINTS_PER_LEVEL` | Points awarded per paragon level | `1` |
 | `PARAGON_STARTING_LEVEL` | Starting paragon level for new characters | `1` |
 | `PARAGON_STARTING_EXPERIENCE` | Starting experience value | `0` |
+| `PARAGON_CURVE_R0` | Initial growth rate for the decaying XP curve | `0.0429` |
+| `PARAGON_CURVE_K` | Decay constant for the XP curve | `20` |
 
 ### Experience Rewards
 
@@ -182,14 +185,16 @@ Configure the system via database entries in `paragon_config`:
 | `UNIVERSAL_CREATURE_EXPERIENCE` | Default XP for creature kills | `50` |
 | `UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE` | Default XP for achievements | `100` |
 | `UNIVERSAL_SKILL_EXPERIENCE` | Default XP for skill increases | `25` |
-| `UNIVERSAL_QUEST_EXPERIENCE` | Default XP for quest completion | `75` |
+| `UNIVERSAL_QUEST_EXPERIENCE` | Fallback XP for quest completion | `1` |
+| `PARAGON_ACHIEVEMENT_POINT_XP` | XP awarded per achievement point | `1000` |
+| `PARAGON_GROUP_XP_DISTANCE` | Maximum distance for party kill-XP sharing | `74` |
 
 ### Experience Multipliers
 
 | Field | Description | Default |
 |-------|-------------|---------|
-| `EXPERIENCE_MULTIPLIER_LOW_LEVEL` | Bonus multiplier for low-level paragons | `1.5` |
-| `EXPERIENCE_MULTIPLIER_HIGH_LEVEL` | Penalty multiplier for high-level paragons | `0.8` |
+| `EXPERIENCE_MULTIPLIER_LOW_LEVEL` | Multiplier for low-level paragons | `1` |
+| `EXPERIENCE_MULTIPLIER_HIGH_LEVEL` | Multiplier for high-level paragons | `1` |
 | `LOW_LEVEL_THRESHOLD` | Paragon level below which bonus applies | `5` |
 | `HIGH_LEVEL_THRESHOLD` | Paragon level above which penalty applies | `100` |
 

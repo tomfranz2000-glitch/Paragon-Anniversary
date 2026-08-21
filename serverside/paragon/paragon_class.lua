@@ -44,14 +44,14 @@ local Paragon = Object:extend()
 ---
 --- Calculates the maximum experience required for a given level.
 ---
---- Uses BASE_MAX_EXPERIENCE config with fallback to 1000 if not available.
+--- Uses BASE_MAX_EXPERIENCE config with the Anniversary preset as fallback.
 ---
 --- @param level The paragon level
 --- @return The maximum experience required for that level
 ---
 local function CalculateMaxExperienceForLevel(level)
     level = level or tonumber(Config:GetByField("PARAGON_STARTING_LEVEL"))
-    local base_max_exp = tonumber(Config:GetByField("BASE_MAX_EXPERIENCE")) or 1000
+    local base_max_exp = tonumber(Config:GetByField("BASE_MAX_EXPERIENCE")) or 30000
     return base_max_exp * level
 end
 

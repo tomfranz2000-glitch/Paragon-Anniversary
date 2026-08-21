@@ -62,7 +62,7 @@ local function ProcessMultipleLevelUps(paragon, gained_experience)
 
     -- Accumulate total experience
     local total_experience = paragon:GetExperience() + gained_experience
-    local base_max_experience = tonumber(Config:GetByField("BASE_MAX_EXPERIENCE")) or 1000
+    local base_max_experience = tonumber(Config:GetByField("BASE_MAX_EXPERIENCE")) or 30000
     local levels_gained = 0
 
     -- Process level-ups while experience exceeds current level's threshold
@@ -99,6 +99,15 @@ end
 --- @return paragon The updated paragon instance
 ---
 local function OnUpdatePlayerExperience(player, paragon, specific_experience)
+    -- This is the final mutation choke point for every normal XP source.
+    -- The main hook checks the minimum too, but party shares, collection
+    -- rewards and future modules may raise this mediator event directly.
+    -- Enforcing the knob here prevents those paths from bypassing the gate.
+    local min_level = tonumber(Config:GetByField("MINIMUM_LEVEL_FOR_PARAGON_XP")) or 80
+    if player and player:GetLevel() < min_level then
+        return paragon
+    end
+
     -- Convert to number if received as string from database
     if type(specific_experience) == "string" then
         specific_experience = tonumber(specific_experience)

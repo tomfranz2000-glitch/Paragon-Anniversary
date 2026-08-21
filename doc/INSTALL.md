@@ -53,6 +53,7 @@ your_ale_scripts_directory/
     │   ├── 04_create_paragon_tables.sql
     │   ├── 05_create_triggers.sql
     │   ├── 06_insert_default_config.sql
+    │   ├── 07_apply_anniversary_config.sql
     │   └── README.md
     ├── paragon_class.lua
     ├── paragon_config.lua
@@ -77,6 +78,7 @@ SOURCE 03_create_experience_tables.sql;
 SOURCE 04_create_paragon_tables.sql;
 SOURCE 05_create_triggers.sql;
 SOURCE 06_insert_default_config.sql;
+SOURCE 07_apply_anniversary_config.sql;
 ```
 
 **Alternative methods:**
@@ -159,7 +161,7 @@ The Paragon System configuration is stored in the `paragon_config` table. You ca
 SELECT * FROM paragon_config;
 
 -- Update a specific setting
-UPDATE paragon_config SET value = '500' WHERE field = 'BASE_MAX_EXPERIENCE';
+UPDATE paragon_config SET value = '30000' WHERE field = 'BASE_MAX_EXPERIENCE';
 ```
 
 ### Essential Configuration Options
@@ -179,18 +181,19 @@ WHERE field = 'ENABLE_PARAGON_SYSTEM';
 
 ```sql
 UPDATE paragon_config
-SET value = '0'
+SET value = '1'
 WHERE field = 'LEVEL_LINKED_TO_ACCOUNT';
 
--- 0 = Character-linked (default) - Each character has independent progression
--- 1 = Account-linked - All characters share level/XP but have separate stat investments
+-- 0 = Character-linked - Each character has independent progression
+-- 1 = Account-linked (Anniversary default) - All characters share level/XP
+--     but have separate stat investments
 ```
 
 #### Set Paragon Level Cap
 
 ```sql
 UPDATE paragon_config
-SET value = '999'
+SET value = '10000'
 WHERE field = 'PARAGON_LEVEL_CAP';
 
 -- 0 = Unlimited (default)
@@ -211,34 +214,40 @@ UPDATE paragon_config SET value = '100' WHERE field = 'UNIVERSAL_ACHIEVEVEMENT_E
 -- Skill increases (default: 25)
 UPDATE paragon_config SET value = '25' WHERE field = 'UNIVERSAL_SKILL_EXPERIENCE';
 
--- Quest completion (default: 75)
-UPDATE paragon_config SET value = '75' WHERE field = 'UNIVERSAL_QUEST_EXPERIENCE';
+-- Quest completion fallback (default: 1; normal rewards use quest data)
+UPDATE paragon_config SET value = '1' WHERE field = 'UNIVERSAL_QUEST_EXPERIENCE';
 ```
 
 ### Configure Progression Speed
 
 ```sql
--- Base experience per paragon level (multiplied by level)
-UPDATE paragon_config SET value = '1000' WHERE field = 'BASE_MAX_EXPERIENCE';
+-- Experience required for the first Paragon level
+UPDATE paragon_config SET value = '30000' WHERE field = 'BASE_MAX_EXPERIENCE';
 
 -- Points awarded per level
 UPDATE paragon_config SET value = '1' WHERE field = 'POINTS_PER_LEVEL';
 
 -- Starting level for new characters
 UPDATE paragon_config SET value = '1' WHERE field = 'PARAGON_STARTING_LEVEL';
+
+-- No Paragon XP is granted merely by creating/loading a progression record
+UPDATE paragon_config SET value = '0' WHERE field = 'PARAGON_STARTING_EXPERIENCE';
+
+-- Characters below this level cannot receive Paragon XP
+UPDATE paragon_config SET value = '80' WHERE field = 'MINIMUM_LEVEL_FOR_PARAGON_XP';
 ```
 
 ### Configure Experience Multipliers
 
 ```sql
--- Bonus for low-level paragons
-UPDATE paragon_config SET value = '1.5' WHERE field = 'EXPERIENCE_MULTIPLIER_LOW_LEVEL';
+-- Low-level Paragon multiplier
+UPDATE paragon_config SET value = '1' WHERE field = 'EXPERIENCE_MULTIPLIER_LOW_LEVEL';
 
 -- Paragon level threshold for low-level bonus
 UPDATE paragon_config SET value = '5' WHERE field = 'LOW_LEVEL_THRESHOLD';
 
--- Penalty for high-level paragons
-UPDATE paragon_config SET value = '0.8' WHERE field = 'EXPERIENCE_MULTIPLIER_HIGH_LEVEL';
+-- High-level Paragon multiplier
+UPDATE paragon_config SET value = '1' WHERE field = 'EXPERIENCE_MULTIPLIER_HIGH_LEVEL';
 
 -- Paragon level threshold for high-level penalty
 UPDATE paragon_config SET value = '100' WHERE field = 'HIGH_LEVEL_THRESHOLD';

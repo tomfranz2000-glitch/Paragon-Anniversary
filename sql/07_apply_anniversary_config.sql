@@ -1,11 +1,12 @@
 -- ============================================================================
--- Paragon System - Default Configuration Values
+-- Paragon Anniversary - Realm Configuration
 -- ============================================================================
--- Inserts default configuration settings for the Paragon system
--- These values are only inserted if they don't already exist (INSERT IGNORE)
+-- Applies the canonical Anniversary configuration to both new and existing
+-- installations. Unlike 06_insert_default_config.sql, this file intentionally
+-- updates existing rows. Run it once when upgrading an older installation.
 -- ============================================================================
 
-INSERT IGNORE INTO `acore_ale`.`paragon_config` (field, value) VALUES
+INSERT INTO `acore_ale`.`paragon_config` (field, value) VALUES
 -- System Control
 ('ENABLE_PARAGON_SYSTEM', '1'),
 ('MINIMUM_LEVEL_FOR_PARAGON_XP', '80'),
@@ -21,7 +22,7 @@ INSERT IGNORE INTO `acore_ale`.`paragon_config` (field, value) VALUES
 ('PARAGON_CURVE_R0', '0.0429'),
 ('PARAGON_CURVE_K', '20'),
 
--- Experience Rewards (Universal Defaults)
+-- Experience Rewards
 ('UNIVERSAL_CREATURE_EXPERIENCE', '50'),
 ('UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE', '100'),
 ('UNIVERSAL_SKILL_EXPERIENCE', '25'),
@@ -36,4 +37,5 @@ INSERT IGNORE INTO `acore_ale`.`paragon_config` (field, value) VALUES
 ('HIGH_LEVEL_THRESHOLD', '100'),
 
 -- Point Customization
-('DEFAULT_STAT_LIMIT', '255');
+('DEFAULT_STAT_LIMIT', '255')
+ON DUPLICATE KEY UPDATE value = VALUES(value);

@@ -16,7 +16,7 @@ local Hook = require("paragon_hook")
 local BANK_TABLE = Constant.DB_NAME .. ".paragon_banked_experience"
 
 local function MinLevel()
-    return tonumber(Config:GetByField("MINIMUM_LEVEL_FOR_PARAGON_XP")) or 0
+    return tonumber(Config:GetByField("MINIMUM_LEVEL_FOR_PARAGON_XP")) or 80
 end
 
 -- ============================================================================

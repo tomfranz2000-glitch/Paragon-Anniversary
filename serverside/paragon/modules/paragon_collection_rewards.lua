@@ -39,6 +39,7 @@
 ]]
 
 local Constant = require("paragon_constant")
+local Config = require("paragon_config")
 local Hook = require("paragon_hook")
 
 local DB = Constant.DB_NAME
@@ -49,6 +50,10 @@ local TICK_MS = 10000
 local SPELL_MIRROR_KEY = "ParagonCollectSpellMirror"
 local ITEM_MIRROR_KEY = "ParagonCollectItemMirror"
 local DIRTY_KEY = "ParagonCollectRewardDirty"
+
+local function MinLevel()
+    return tonumber(Config:GetByField("MINIMUM_LEVEL_FOR_PARAGON_XP")) or 80
+end
 
 -- ============================================================================
 -- VALUE TABLES (loaded once at boot; restart to pick up classifier reruns)
@@ -165,7 +170,7 @@ RegisterPlayerEvent(44, function(event, player, spellId)
         return
     end
     local ok, err = pcall(function()
-        if IsBot(player) or player:GetLevel() < 80 then
+        if IsBot(player) or player:GetLevel() < MinLevel() then
             return
         end
         local mirror = SpellMirror(player)
@@ -275,7 +280,7 @@ end)
 
 RegisterMediatorEvent("OnAfterUpdatePlayerStatistics", function(player, paragon, apply)
     local ok, err = pcall(function()
-        if apply and player and paragon and not IsBot(player) and player:GetLevel() >= 80 then
+        if apply and player and paragon and not IsBot(player) and player:GetLevel() >= MinLevel() then
             EnsureTicker(player)
         end
     end)

@@ -16,6 +16,7 @@ Execute the following files in order using your preferred MySQL client (MySQL Wo
 4. **04_create_paragon_tables.sql** - Creates paragon progression tables
 5. **05_create_triggers.sql** - Creates validation triggers for statistics
 6. **06_insert_default_config.sql** - Inserts default configuration values
+7. **07_apply_anniversary_config.sql** - Updates an existing installation to the canonical Anniversary realm values
 
 ### Quick Installation (All at once)
 
@@ -28,6 +29,7 @@ SOURCE 03_create_experience_tables.sql;
 SOURCE 04_create_paragon_tables.sql;
 SOURCE 05_create_triggers.sql;
 SOURCE 06_insert_default_config.sql;
+SOURCE 07_apply_anniversary_config.sql;
 ```
 
 ### Verification
@@ -49,8 +51,13 @@ And verify that default configuration values were inserted:
 
 ```sql
 SELECT COUNT(*) FROM acore_ale.paragon_config;
--- Should return at least 17 rows
+-- Should return at least 22 rows
 ```
+
+`06_insert_default_config.sql` is non-destructive and only fills missing rows.
+Run `07_apply_anniversary_config.sql` once when upgrading an existing database;
+it intentionally replaces previous configuration values with this fork's realm
+preset.
 
 ## Error Handling
 
@@ -72,7 +79,7 @@ This file contains a **complete example configuration** with:
 
 **How to use:**
 ```sql
--- After executing files 01-06, optionally load the example data:
+-- After executing files 01-07, optionally load the example data:
 SOURCE 11-13-2026_Example_Data.sql;
 ```
 

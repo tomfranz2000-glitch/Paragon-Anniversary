@@ -117,35 +117,35 @@ group play (tank/healer earn zero).
 season of committed play, not a lifetime), with no hard wall — growth slows its
 own growth instead.
 
-- First level: **10,000 XP** (≈ one raid boss — the on-ramp is one good kill).
+- First level: **30,000 XP**.
 - Per-level growth with decaying rate:
 
   ```
   cost(L) = cost(L−1) × (1 + r(L))      r(L) = r₀ / (1 + L/k)
   ```
 
-  Starting constants: **r₀ = 0.04, k = 20** [tunable]. Early levels compound
+  Realm constants: **r₀ = 0.0429, k = 20** [tunable]. Early levels compound
   noticeably; by the deep hundreds growth is nearly flat — an endless but
   honest tail.
 
-Projected shape (r₀ = 0.04, k = 20; income assumption ~400k XP/hour of
+Projected shape (base = 30,000, r₀ = 0.0429, k = 20; income assumption
+~400k XP/hour of
 dedicated endgame play — heroic clears + dailies at the values above):
 
 | Paragon level | Cost of that level | Total XP to reach | ≈ Hours |
 |---|---|---|---|
-| 1 | 10,000 | 10k | minutes |
-| 10 | 13,300 | 120k | <1 |
-| 50 | 26,000 | 900k | ~2 |
-| 100 | 40,000 | 2.5M | ~6 |
-| 250 | 77,000 | 11M | ~28 |
-| 500 | 130,000 | 37M | ~92 |
-| 1000 | 223,000 | 125M | ~310 |
+| 1 | 30,000 | 30k | minutes |
+| 10 | 40,295 | 352k | <1 |
+| 50 | 82,134 | 2.84M | ~7 |
+| 100 | 129,816 | 8.17M | ~20 |
+| 250 | 259,353 | 37.6M | ~94 |
+| 500 | 454,462 | 127M | ~318 |
+| 1000 | 809,508 | 445M | ~1,112 |
 
-Tuning method: pick three anchors ("level 100 in a weekend, level 500 in ~100
-hours, level 1000 for the truly dedicated") and solve r₀/k to fit — don't tune
-constants in the abstract. Halving r₀ roughly halves the deep-tail cost.
-If ~310h reads too steep for "pretty achievable", drop r₀ toward 0.03
-(→ level 1000 ≈ ~175h total).
+Tuning method: pick three anchors and solve the base/r₀/k combination to fit —
+don't tune constants in the abstract. The current 30k/0.0429/20 realm preset
+is substantially slower than the original draft and should be evaluated from
+live XP-per-hour measurements before further adjustment.
 
 Related config changes:
 

@@ -31,6 +31,11 @@
 
 local PREFIX = "ParagonCollection"
 local COUNT_KEY = "ParagonCollectionCounts"
+local Config = require("paragon_config")
+
+local function MinLevel()
+    return tonumber(Config:GetByField("MINIMUM_LEVEL_FOR_PARAGON_XP")) or 80
+end
 
 -- paragon_hook.lua EXPERIENCE_SOURCE: achievement rewards stay flat
 local SOURCE_ACHIEVEMENT = 2
@@ -76,7 +81,7 @@ function ParagonCollectionXP_Factor(player, paragon)
         return 1.0
     end
     -- account-wide paragon: benefits require character level 80
-    if player:GetLevel() < 80 then
+    if player:GetLevel() < MinLevel() then
         return 1.0
     end
     local level = paragon:GetLevel()
@@ -140,7 +145,7 @@ local function PushState(player)
         return -- paragon still loading (or bot without addon): nothing to say
     end
     local level = paragon:GetLevel()
-    local sub80 = player:GetLevel() < 80
+    local sub80 = player:GetLevel() < MinLevel()
     local counts = nil
     local state = {}
     for _, bonus in ipairs(BONUSES) do
