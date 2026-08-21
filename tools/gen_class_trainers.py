@@ -173,16 +173,26 @@ def main():
     spell = {r[0]: r for r in sp}
     sla_spells = set(r[2] for r in sla)
 
-    # chain root -> ordered stock rank spell ids
+    # chain root -> ordered rank spell ids from the world DB. A normal installed
+    # realm also contains this generator's previous 1901xxx output, so derive a
+    # second view from the pristine client Spell.dbc instead of treating those
+    # custom rows as the stock top rank.
     chain = collections.defaultdict(dict)
     for row in P.mysql("SELECT first_spell_id, spell_id, `rank` FROM spell_ranks;"):
         chain[int(row[0])][int(row[2])] = int(row[1])
+    stock_chain = {
+        root: {rank: spell_id for rank, spell_id in ranks.items()
+               if spell_id in spell}
+        for root, ranks in chain.items()
+    }
     trained = set(int(r[0]) for r in
                   P.mysql("SELECT DISTINCT SpellId FROM trainer_spell;"))
 
     # (class, spell name) -> root, resolved from the chains that are TRAINED
     roots = {}
-    for root, ranks in chain.items():
+    for root, ranks in stock_chain.items():
+        if not ranks:
+            continue
         if root not in spell:
             continue
         nm = sps(spell[root][NAME])
@@ -197,7 +207,7 @@ def main():
         if nm not in roots:
             return None, "no trained rank chain by that name"
         root = roots[nm][0]
-        ranks = chain[root]
+        ranks = stock_chain[root]
         order = [ranks[k] for k in sorted(ranks)]
         top = order[-1]
         if top not in trained:
@@ -302,9 +312,9 @@ def main():
                 nid += 1
 
     print("\n" + "=" * 78)
-    print("%d new trainer ranks across %d classes" %
-          (len(entries), len(CHAINS)))
     by_cls = collections.Counter(e["cls"] for e in entries)
+    print("%d new trainer ranks across %d classes" %
+          (len(entries), len(by_cls)))
     for c in sorted(by_cls):
         depth = collections.Counter(e["name"] for e in entries if e["cls"] == c)
         print("  %-14s %2d ranks over %2d chains, deepest %d"
@@ -316,6 +326,10 @@ def main():
     else:
         print("\nno problems: every chain is trainer-taught, has a "
               "SkillLineAbility row, and grows.")
+
+    if args.emit and problems:
+        print("\nnot writing generated class data while problems remain")
+        return 1
 
     if args.emit:
         out = os.path.join(HERE, "generated", "class_trainer_ranks.py")
