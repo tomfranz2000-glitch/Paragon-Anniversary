@@ -1,0 +1,17 @@
+# Build spoil: 150 MB of extracted Blizzard client DBCs, rebuilt on first run
+tools/cache/
+tools/stage-general/
+tools/stage-locale/
+__pycache__/
+*.pyc
+
+# Generated, and regenerable from the tools above
+tools/generated/collectible_xp_review.csv
+tools/generated/class_track.lua
+tools/generated/*.dbc
+tools/generated/err.txt
+
+# Built client archives. Regenerate with tools/paragon_client_patch.py against
+# your own client -- they embed Blizzard DBC data and are not ours to ship.
+*.MPQ
+!tools/mpq-backup/*.MPQ
