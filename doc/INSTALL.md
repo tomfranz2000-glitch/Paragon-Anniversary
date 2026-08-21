@@ -48,13 +48,10 @@ your_ale_scripts_directory/
     │   └── paragon_anniversary.lua
     ├── sql/
     │   ├── 01_create_database.sql
-    │   ├── 02_create_config_tables.sql
-    │   ├── 03_create_experience_tables.sql
-    │   ├── 04_create_paragon_tables.sql
-    │   ├── 05_create_triggers.sql
-    │   ├── 06_insert_default_config.sql
-    │   ├── 07_apply_anniversary_config.sql
-    │   ├── 08_create_runtime_tables.sql
+    │   ├── 02_create_tables.sql
+    │   ├── 03_create_triggers.sql
+    │   ├── 04_insert_default_config.sql
+    │   ├── 05_apply_anniversary_config.sql
     │   └── README.md
     ├── paragon_class.lua
     ├── paragon_config.lua
@@ -74,13 +71,10 @@ Navigate to the `sql/` directory and execute all files in order using your MySQL
 ```sql
 -- Execute in this exact order:
 SOURCE 01_create_database.sql;
-SOURCE 02_create_config_tables.sql;
-SOURCE 03_create_experience_tables.sql;
-SOURCE 04_create_paragon_tables.sql;
-SOURCE 05_create_triggers.sql;
-SOURCE 06_insert_default_config.sql;
-SOURCE 07_apply_anniversary_config.sql;
-SOURCE 08_create_runtime_tables.sql;
+SOURCE 02_create_tables.sql;
+SOURCE 03_create_triggers.sql;
+SOURCE 04_insert_default_config.sql;
+SOURCE 05_apply_anniversary_config.sql;
 ```
 
 **Alternative methods:**
@@ -100,7 +94,7 @@ USE acore_ale;  -- or your configured database name
 SHOW TABLES LIKE 'paragon%';
 SHOW TABLES LIKE '%paragon%';
 
--- Expected tables (15 total):
+-- Expected tables (20 total):
 -- paragon_config
 -- paragon_config_category
 -- paragon_config_statistic
@@ -116,6 +110,11 @@ SHOW TABLES LIKE '%paragon%';
 -- paragon_rewarded_collectible_spell
 -- paragon_rewarded_appearance
 -- paragon_banked_experience
+-- paragon_codex_alloc
+-- paragon_custom_glyph
+-- paragon_racial_pick
+-- paragon_rare_kills
+-- paragon_solo_clears
 
 -- Verify default configuration was inserted
 SELECT COUNT(*) FROM paragon_config;
@@ -333,7 +332,7 @@ The database 'acore_ale' does not exist.
 SOLUTION:
   1. Navigate to: lua_scripts/game/systems/paragon/sql/
   2. Execute 01_create_database.sql
-  3. Execute all other SQL files (02 through 08)
+  3. Execute all other numbered SQL files (02 through 05)
   4. Reload Eluna scripts: .reload eluna
 =================================================================
 ```

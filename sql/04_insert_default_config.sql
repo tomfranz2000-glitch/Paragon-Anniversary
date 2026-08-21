@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Paragon System - Default Configuration Values
 -- ============================================================================
--- Inserts default configuration settings for the Paragon system
+-- Inserts the default configuration settings for the Paragon system
 -- These values are only inserted if they don't already exist (INSERT IGNORE)
 -- ============================================================================
 

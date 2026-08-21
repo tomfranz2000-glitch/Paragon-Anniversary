@@ -347,13 +347,10 @@ doc/
 
 sql/
 ├── 01_create_database.sql          # Database creation
-├── 02_create_config_tables.sql     # Configuration tables
-├── 03_create_experience_tables.sql # Experience reward tables
-├── 04_create_paragon_tables.sql    # Paragon progression tables
-├── 05_create_triggers.sql          # Validation triggers
-├── 06_insert_default_config.sql    # Default configuration
-├── 07_apply_anniversary_config.sql # Anniversary realm configuration
-├── 08_create_runtime_tables.sql    # Runtime support tables
+├── 02_create_tables.sql            # Complete table schema
+├── 03_create_triggers.sql          # Validation triggers
+├── 04_insert_default_config.sql    # Default configuration
+├── 05_apply_anniversary_config.sql # Anniversary realm configuration
 ├── 11-13-2026_Example_Data.sql     # Example categories & statistics
 └── README.md                       # SQL installation guide
 ```

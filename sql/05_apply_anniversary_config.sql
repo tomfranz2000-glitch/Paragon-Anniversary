@@ -2,7 +2,7 @@
 -- Paragon Anniversary - Realm Configuration
 -- ============================================================================
 -- Applies the canonical Anniversary configuration to both new and existing
--- installations. Unlike 06_insert_default_config.sql, this file intentionally
+-- installations. Unlike 04_insert_default_config.sql, this file intentionally
 -- updates existing rows. Run it once when upgrading an older installation.
 -- ============================================================================
 

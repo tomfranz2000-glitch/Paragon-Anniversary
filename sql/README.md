@@ -11,13 +11,10 @@ This directory contains all SQL migration files required to set up the Paragon s
 Execute the following files in order using your preferred MySQL client (MySQL Workbench, HeidiSQL, command line, etc.):
 
 1. **01_create_database.sql** - Creates the `acore_ale` database
-2. **02_create_config_tables.sql** - Creates configuration tables (categories, statistics, general config)
-3. **03_create_experience_tables.sql** - Creates experience reward tables
-4. **04_create_paragon_tables.sql** - Creates paragon progression tables
-5. **05_create_triggers.sql** - Creates validation triggers for statistics
-6. **06_insert_default_config.sql** - Inserts default configuration values
-7. **07_apply_anniversary_config.sql** - Updates an existing installation to the canonical Anniversary realm values
-8. **08_create_runtime_tables.sql** - Creates the collection-reward and pre-80 banking support tables
+2. **02_create_tables.sql** - Creates every table required by the base system and Anniversary modules
+3. **03_create_triggers.sql** - Creates validation triggers for statistics
+4. **04_insert_default_config.sql** - Inserts default configuration values
+5. **05_apply_anniversary_config.sql** - Updates an existing installation to the canonical Anniversary realm values
 
 ### Quick Installation (All at once)
 
@@ -25,13 +22,10 @@ You can also execute all files at once by running them in sequence, or by creati
 
 ```sql
 SOURCE 01_create_database.sql;
-SOURCE 02_create_config_tables.sql;
-SOURCE 03_create_experience_tables.sql;
-SOURCE 04_create_paragon_tables.sql;
-SOURCE 05_create_triggers.sql;
-SOURCE 06_insert_default_config.sql;
-SOURCE 07_apply_anniversary_config.sql;
-SOURCE 08_create_runtime_tables.sql;
+SOURCE 02_create_tables.sql;
+SOURCE 03_create_triggers.sql;
+SOURCE 04_insert_default_config.sql;
+SOURCE 05_apply_anniversary_config.sql;
 ```
 
 ### Verification
@@ -53,6 +47,11 @@ After running all migration files, verify the installation by checking that the 
 - `acore_ale.paragon_rewarded_collectible_spell`
 - `acore_ale.paragon_rewarded_appearance`
 - `acore_ale.paragon_banked_experience`
+- `acore_ale.paragon_codex_alloc`
+- `acore_ale.paragon_custom_glyph`
+- `acore_ale.paragon_racial_pick`
+- `acore_ale.paragon_rare_kills`
+- `acore_ale.paragon_solo_clears`
 
 And verify that default configuration values were inserted:
 
@@ -61,8 +60,8 @@ SELECT COUNT(*) FROM acore_ale.paragon_config;
 -- Should return at least 22 rows
 ```
 
-`06_insert_default_config.sql` is non-destructive and only fills missing rows.
-Run `07_apply_anniversary_config.sql` once when upgrading an existing database;
+`04_insert_default_config.sql` is non-destructive and only fills missing rows.
+Run `05_apply_anniversary_config.sql` once when upgrading an existing database;
 it intentionally replaces previous configuration values with this fork's realm
 preset.
 
@@ -86,7 +85,7 @@ This file contains a **complete example configuration** with:
 
 **How to use:**
 ```sql
--- After executing files 01-08, optionally load the example data:
+-- After executing files 01-05, optionally load the example data:
 SOURCE 11-13-2026_Example_Data.sql;
 ```
 

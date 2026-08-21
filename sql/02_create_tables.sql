@@ -1,0 +1,187 @@
+-- ============================================================================
+-- Paragon Anniversary - Complete Table Schema
+-- ============================================================================
+-- This is the single authoritative table-creation file for the Paragon system.
+-- Run 01_create_database.sql first, then run this file before triggers, defaults,
+-- or Lua scripts. Every statement is idempotent for existing installations.
+-- ============================================================================
+
+-- --------------------------------------------------------------------------
+-- Configuration
+-- --------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config_category` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `name` VARCHAR(50) NOT NULL,
+
+    PRIMARY KEY (`id`)
+);
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config_statistic` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `category` INT NOT NULL DEFAULT 1,
+    `type` ENUM('AURA','COMBAT_RATING','UNIT_MODS') NOT NULL DEFAULT 'AURA',
+    `type_value` INT NOT NULL DEFAULT 0,
+    `icon` VARCHAR(50) NOT NULL DEFAULT '0',
+    `factor` INT NOT NULL DEFAULT 1,
+    `limit` INT(3) NOT NULL DEFAULT 255,
+    `application` INT NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (`id`),
+    CONSTRAINT `fk_category`
+        FOREIGN KEY (`category`)
+        REFERENCES `acore_ale`.`paragon_config_category` (`id`)
+            ON UPDATE CASCADE
+            ON DELETE NO ACTION
+);
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config` (
+    `field` VARCHAR(255) NOT NULL,
+    `value` VARCHAR(255) NOT NULL,
+
+    PRIMARY KEY (`field`)
+);
+
+-- --------------------------------------------------------------------------
+-- Experience-source configuration
+-- --------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config_experience_creature` (
+    `id` INT(11) NOT NULL,
+    `experience` INT(11) NOT NULL DEFAULT 50,
+
+    PRIMARY KEY (`id`)
+);
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config_experience_achievement` (
+    `id` INT(11) NOT NULL,
+    `experience` INT(11) NOT NULL DEFAULT 100,
+
+    PRIMARY KEY (`id`)
+);
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config_experience_skill` (
+    `id` INT(11) NOT NULL,
+    `experience` INT(11) NOT NULL DEFAULT 25,
+
+    PRIMARY KEY (`id`)
+);
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config_experience_quest` (
+    `id` INT(11) NOT NULL,
+    `experience` INT(11) NOT NULL DEFAULT 75,
+
+    PRIMARY KEY (`id`)
+);
+
+-- --------------------------------------------------------------------------
+-- Progression
+-- --------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`character_paragon` (
+    `guid` INT(11) NOT NULL,
+    `level` INT(11) NOT NULL DEFAULT 1,
+    `experience` INT(11) NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (`guid`)
+);
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`account_paragon` (
+    `account_id` INT(11) NOT NULL,
+    `level` INT(11) NOT NULL DEFAULT 1,
+    `experience` INT(11) NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (`account_id`)
+);
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`character_paragon_stats` (
+    `guid` INT(11) NOT NULL,
+    `stat_id` INT(11) NOT NULL,
+    `stat_value` INT(11) NOT NULL,
+
+    PRIMARY KEY (`guid`, `stat_id`)
+);
+
+-- --------------------------------------------------------------------------
+-- Collection rewards and pre-minimum-level banking
+-- --------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_collectible_spell_xp` (
+    `spell_id` INT NOT NULL,
+    `kind` VARCHAR(10) NOT NULL,
+    `name` VARCHAR(120) NOT NULL,
+    `xp` INT NOT NULL,
+
+    PRIMARY KEY (`spell_id`)
+);
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_collectible_item_xp` (
+    `item_id` INT NOT NULL,
+    `name` VARCHAR(120) NOT NULL,
+    `xp` INT NOT NULL,
+
+    PRIMARY KEY (`item_id`)
+);
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_rewarded_collectible_spell` (
+    `account_id` INT UNSIGNED NOT NULL,
+    `spell_id` INT UNSIGNED NOT NULL,
+
+    PRIMARY KEY (`account_id`, `spell_id`)
+);
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_rewarded_appearance` (
+    `account_id` INT UNSIGNED NOT NULL,
+    `item_id` INT UNSIGNED NOT NULL,
+
+    PRIMARY KEY (`account_id`, `item_id`)
+);
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_banked_experience` (
+    `guid` INT UNSIGNED NOT NULL,
+    `amount` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (`guid`)
+);
+
+-- --------------------------------------------------------------------------
+-- Anniversary feature state
+-- --------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_codex_alloc` (
+    `guid` INT UNSIGNED NOT NULL,
+    `node_id` INT UNSIGNED NOT NULL,
+    `node_rank` INT UNSIGNED NOT NULL,
+
+    PRIMARY KEY (`guid`, `node_id`)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_custom_glyph` (
+    `guid` INT UNSIGNED NOT NULL,
+    `item` INT UNSIGNED NOT NULL,
+    `property` INT UNSIGNED NOT NULL,
+    `aura` INT UNSIGNED NOT NULL,
+
+    PRIMARY KEY (`guid`)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_racial_pick` (
+    `guid` INT UNSIGNED NOT NULL,
+    `pick_key` VARCHAR(32) NOT NULL,
+
+    PRIMARY KEY (`guid`)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_rare_kills` (
+    `guid` INT UNSIGNED NOT NULL,
+    `entry` INT UNSIGNED NOT NULL,
+
+    PRIMARY KEY (`guid`, `entry`)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_solo_clears` (
+    `guid` INT UNSIGNED NOT NULL,
+    `dungeon` SMALLINT UNSIGNED NOT NULL,
+
+    PRIMARY KEY (`guid`, `dungeon`)
+) ENGINE=InnoDB;

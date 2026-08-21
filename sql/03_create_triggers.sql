@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Paragon System - Validation Triggers
 -- ============================================================================
--- Creates triggers to validate statistic type values on INSERT and UPDATE
+-- Validates statistic type values on INSERT and UPDATE
 -- Ensures type_value matches the selected type (COMBAT_RATING, UNIT_MODS, or AURA)
 -- ============================================================================
 
