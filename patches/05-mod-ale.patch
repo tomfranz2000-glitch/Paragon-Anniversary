@@ -1,0 +1,244 @@
+diff --git a/src/ALE_SC.cpp b/src/ALE_SC.cpp
+index d8886ce..be8fcd1 100644
+--- a/src/ALE_SC.cpp
++++ b/src/ALE_SC.cpp
+@@ -302,6 +302,24 @@ public:
+     }
+ };
+ 
++// Paragon §1p: surfaces the core's authoritative dungeon-completion signal
++// to Lua (MAP_EVENT_ON_ENCOUNTER_COMPLETE). Unlike creature-death watching
++// this catches both credit types without replacing any boss AI, and
++// dungeonCompleted is non-zero exactly when the final encounter of
++// (map, difficulty) was just credited.
++class ALE_GlobalScript : public GlobalScript
++{
++public:
++    ALE_GlobalScript() : GlobalScript("ALE_GlobalScript", {
++        GLOBALHOOK_ON_AFTER_UPDATE_ENCOUNTER_STATE
++    }) { }
++
++    void OnAfterUpdateEncounterState(Map* map, EncounterCreditType type, uint32 creditEntry, Unit* source, Difficulty /*difficulty_fixed*/, DungeonEncounterList const* /*encounters*/, uint32 dungeonCompleted, bool /*updated*/) override
++    {
++        sALE->OnEncounterComplete(map, uint32(type), creditEntry, source, dungeonCompleted);
++    }
++};
++
+ class ALE_AuctionHouseScript : public AuctionHouseScript
+ {
+ public:
+@@ -638,6 +656,7 @@ public:
+         PLAYERHOOK_ON_STORE_NEW_ITEM,
+         PLAYERHOOK_ON_PLAYER_COMPLETE_QUEST,
+         PLAYERHOOK_CAN_GROUP_INVITE,
++        PLAYERHOOK_CAN_LEARN_TALENT,
+         PLAYERHOOK_ON_BATTLEGROUND_DESERTION,
+         PLAYERHOOK_ON_CREATURE_KILLED_BY_PET,
+         PLAYERHOOK_ON_CAN_UPDATE_SKILL,
+@@ -932,6 +951,11 @@ public:
+         return sALE->OnCanGroupInvite(player, memberName);
+     }
+ 
++    bool OnPlayerCanLearnTalent(Player* player, TalentEntry const* talent, uint32 rank) override
++    {
++        return sALE->OnCanLearnTalent(player, talent->TalentID, rank);
++    }
++
+     void OnPlayerBattlegroundDesertion(Player* player, const BattlegroundDesertionType type) override
+     {
+         sALE->OnBattlegroundDesertion(player, type);
+@@ -1348,6 +1372,7 @@ void AddSC_ALE()
+     new ALE_AllItemScript();
+     new ALE_AllMapScript();
+     new ALE_AuctionHouseScript();
++    new ALE_GlobalScript();
+     new ALE_BGScript();
+     new ALE_CommandSC();
+     new ALE_ALEScript();
+diff --git a/src/LuaEngine/Hooks.h b/src/LuaEngine/Hooks.h
+index f83dd99..9c250cb 100644
+--- a/src/LuaEngine/Hooks.h
++++ b/src/LuaEngine/Hooks.h
+@@ -158,6 +158,11 @@ namespace Hooks
+         GAME_EVENT_START                        =     34,       // (event, gameeventid)
+         GAME_EVENT_STOP                         =     35,       // (event, gameeventid)
+ 
++        // Paragon §1p: authoritative dungeon-completion signal (both kill- and
++        // spell-credit paths, no boss-AI hijack). dungeonId != 0 only when the
++        // final encounter of (map, difficulty) was credited; source can be nil.
++        MAP_EVENT_ON_ENCOUNTER_COMPLETE         =     36,       // (event, map, creditType, creditEntry, source, dungeonId)
++
+         SERVER_EVENT_COUNT
+     };
+ 
+@@ -238,6 +243,7 @@ namespace Hooks
+         PLAYER_EVENT_ON_MODIFY_HEAL_RECEIVED                =     71,       // (event, player, target, heal, spellInfo) - Can return new heal amount
+         PLAYER_EVENT_ON_DEAL_DAMAGE                         =     72,       // (event, player, target, damage, damagetype) - Can return new damage amount
+         PLAYER_EVENT_ON_RELEASED_GHOST                      =     73,       // (event, player)
++        PLAYER_EVENT_ON_CAN_LEARN_TALENT                    =     74,       // (event, player, talentId, rank) - Can return false to prevent learning
+ 
+         PLAYER_EVENT_COUNT
+     };
+diff --git a/src/LuaEngine/LuaEngine.h b/src/LuaEngine/LuaEngine.h
+index a21640d..3f55a41 100644
+--- a/src/LuaEngine/LuaEngine.h
++++ b/src/LuaEngine/LuaEngine.h
+@@ -495,6 +495,7 @@ public:
+     bool OnCanSendMail(Player* player, ObjectGuid receiverGuid, ObjectGuid mailbox, std::string& subject, std::string& body, uint32 money, uint32 cod, Item* item);
+     bool OnCanJoinLfg(Player* player, uint8 roles, lfg::LfgDungeonSet& dungeons, const std::string& comment);
+     bool OnCanGroupInvite(Player* player, std::string& memberName);
++    bool OnCanLearnTalent(Player* player, uint32 talentId, uint32 rank);
+     void OnGroupRollRewardItem(Player* player, Item* item, uint32 count, RollVote voteType, Roll* roll);
+     void OnBattlegroundDesertion(Player* player, const BattlegroundDesertionType type);
+     void OnCreatureKilledByPet(Player* player, Creature* killed);
+@@ -560,6 +561,7 @@ public:
+     void OnPlayerEnter(Map* map, Player* player);
+     void OnPlayerLeave(Map* map, Player* player);
+     void OnUpdate(Map* map, uint32 diff);
++    void OnEncounterComplete(Map* map, uint32 creditType, uint32 creditEntry, Unit* source, uint32 dungeonId); // Paragon §1p
+     void OnAddToWorld(Creature* creature);
+     void OnRemoveFromWorld(Creature* creature);
+     void OnAddToWorld(GameObject* gameobject);
+diff --git a/src/LuaEngine/LuaFunctions.cpp b/src/LuaEngine/LuaFunctions.cpp
+index c0acc01..5d3e29d 100644
+--- a/src/LuaEngine/LuaFunctions.cpp
++++ b/src/LuaEngine/LuaFunctions.cpp
+@@ -634,6 +634,7 @@ ALERegister<Player> PlayerMethods[] =
+     { "IsInGroup", &LuaPlayer::IsInGroup },
+     { "IsInGuild", &LuaPlayer::IsInGuild },
+     { "IsGM", &LuaPlayer::IsGM },
++    { "IsPlayerBot", &LuaPlayer::IsPlayerBot },
+     { "IsImmuneToDamage", &LuaPlayer::IsImmuneToDamage },
+     { "IsAlliance", &LuaPlayer::IsAlliance },
+     { "IsHorde", &LuaPlayer::IsHorde },
+diff --git a/src/LuaEngine/hooks/PlayerHooks.cpp b/src/LuaEngine/hooks/PlayerHooks.cpp
+index 7649274..58b4653 100644
+--- a/src/LuaEngine/hooks/PlayerHooks.cpp
++++ b/src/LuaEngine/hooks/PlayerHooks.cpp
+@@ -680,6 +680,17 @@ bool ALE::OnCanGroupInvite(Player* player, std::string& memberName)
+     return CallAllFunctionsBool(PlayerEventBindings, key);
+ }
+ 
++bool ALE::OnCanLearnTalent(Player* player, uint32 talentId, uint32 rank)
++{
++    START_HOOK_WITH_RETVAL(PLAYER_EVENT_ON_CAN_LEARN_TALENT, true);
++    Push(player);
++    Push(talentId);
++    Push(rank);
++    // default_value true: handlers only need to return false to refuse the
++    // learn; returning nothing (or true) allows it.
++    return CallAllFunctionsBool(PlayerEventBindings, key, true);
++}
++
+ void ALE::OnGroupRollRewardItem(Player* player, Item* item, uint32 count, RollVote voteType, Roll* roll)
+ {
+     START_HOOK(PLAYER_EVENT_ON_GROUP_ROLL_REWARD_ITEM);
+diff --git a/src/LuaEngine/hooks/ServerHooks.cpp b/src/LuaEngine/hooks/ServerHooks.cpp
+index f305c97..c319045 100644
+--- a/src/LuaEngine/hooks/ServerHooks.cpp
++++ b/src/LuaEngine/hooks/ServerHooks.cpp
+@@ -319,6 +319,23 @@ void ALE::OnUpdate(Map* map, uint32 diff)
+     CallAllFunctions(ServerEventBindings, key);
+ }
+ 
++// Paragon §1p: fired from GlobalScript::OnAfterUpdateEncounterState — the
++// core's own completion matcher (Map::UpdateEncounterState). source is the
++// credited creature/caster and can be nullptr (script-driven credits).
++void ALE::OnEncounterComplete(Map* map, uint32 creditType, uint32 creditEntry, Unit* source, uint32 dungeonId)
++{
++    START_HOOK(MAP_EVENT_ON_ENCOUNTER_COMPLETE);
++    Push(map);
++    Push(creditType);
++    Push(creditEntry);
++    if (source)
++        Push(source);
++    else
++        Push();
++    Push(dungeonId);
++    CallAllFunctions(ServerEventBindings, key);
++}
++
+ void ALE::OnRemove(GameObject* gameobject)
+ {
+     START_HOOK(WORLD_EVENT_ON_DELETE_GAMEOBJECT);
+diff --git a/src/LuaEngine/methods/GlobalMethods.h b/src/LuaEngine/methods/GlobalMethods.h
+index cebb7bc..75972e5 100644
+--- a/src/LuaEngine/methods/GlobalMethods.h
++++ b/src/LuaEngine/methods/GlobalMethods.h
+@@ -697,6 +697,9 @@ namespace LuaGlobalFunctions
+      *
+      *         GAME_EVENT_START                        =     34,       // (event, gameeventid)
+      *         GAME_EVENT_STOP                         =     35,       // (event, gameeventid)
++     *
++     *         // Paragon §1p
++     *         MAP_EVENT_ON_ENCOUNTER_COMPLETE         =     36,       // (event, map, creditType, creditEntry, source, dungeonId) - source can be nil
+      *     };
+      *
+      * @proto cancel = (event, function)
+@@ -794,6 +797,7 @@ namespace LuaGlobalFunctions
+      *     PLAYER_EVENT_ON_MODIFY_HEAL_RECEIVED                 =     71,       // (event, player, target, heal, spellInfo) - Can return new heal amount
+      *     PLAYER_EVENT_ON_DEAL_DAMAGE                          =     72,       // (event, player, target, damage, damagetype) - Can return new damage amount
+      *     PLAYER_EVENT_ON_RELEASED_GHOST                       =     73,       // (event, player)
++     *     PLAYER_EVENT_ON_CAN_LEARN_TALENT                     =     74,       // (event, player, talentId, rank) - Can return false to prevent learning
+      * };
+      * </pre>
+      *
+diff --git a/src/LuaEngine/methods/ItemMethods.h b/src/LuaEngine/methods/ItemMethods.h
+index 06ddf1d..6c71e4d 100644
+--- a/src/LuaEngine/methods/ItemMethods.h
++++ b/src/LuaEngine/methods/ItemMethods.h
+@@ -377,7 +377,10 @@ namespace LuaItem
+     {
+         uint32 enchant_slot = ALE::CHECKVAL<uint32>(L, 2);
+ 
+-        if (enchant_slot >= MAX_INSPECTED_ENCHANTMENT_SLOT)
++        // Paragon §1o: full 12-slot range — PROP slots (7-11) hold the
++        // double-buckle overflow gem on belts whose three SOCK slots are
++        // all consumed (2 native sockets + prismatic)
++        if (enchant_slot >= MAX_ENCHANTMENT_SLOT)
+             return luaL_argerror(L, 2, "valid EnchantmentSlot expected");
+ 
+         ALE::Push(L, item->GetEnchantmentId(EnchantmentSlot(enchant_slot)));
+@@ -693,7 +696,8 @@ namespace LuaItem
+         }
+ 
+         EnchantmentSlot slot = (EnchantmentSlot)ALE::CHECKVAL<uint32>(L, 3);
+-        if (slot >= MAX_INSPECTED_ENCHANTMENT_SLOT)
++        // Paragon §1o: full 12-slot range (see GetEnchantmentId)
++        if (slot >= MAX_ENCHANTMENT_SLOT)
+             return luaL_argerror(L, 2, "valid EnchantmentSlot expected");
+ 
+         owner->ApplyEnchantment(item, slot, false);
+@@ -746,7 +750,8 @@ namespace LuaItem
+         }
+ 
+         EnchantmentSlot slot = (EnchantmentSlot)ALE::CHECKVAL<uint32>(L, 2);
+-        if (slot >= MAX_INSPECTED_ENCHANTMENT_SLOT)
++        // Paragon §1o: full 12-slot range (see GetEnchantmentId)
++        if (slot >= MAX_ENCHANTMENT_SLOT)
+             return luaL_argerror(L, 2, "valid EnchantmentSlot expected");
+ 
+         if (!item->GetEnchantmentId(slot))
+diff --git a/src/LuaEngine/methods/PlayerMethods.h b/src/LuaEngine/methods/PlayerMethods.h
+index f886261..272a55e 100644
+--- a/src/LuaEngine/methods/PlayerMethods.h
++++ b/src/LuaEngine/methods/PlayerMethods.h
+@@ -936,6 +936,18 @@ namespace LuaPlayer
+         return 1;
+     }
+ 
++    /**
++     * Returns 'true' if the [Player] is driven by a playerbot session
++     * (the session carries no real client), 'false' for real players.
++     *
++     * @return bool isPlayerBot
++     */
++    int IsPlayerBot(lua_State* L, Player* player)
++    {
++        ALE::Push(L, player->GetSession() && player->GetSession()->IsBot());
++        return 1;
++    }
++
+     /**
+      * Returns the faction ID the [Player] is currently flagged as champion for
+      *

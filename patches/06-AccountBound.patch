@@ -1,0 +1,91 @@
+diff --git a/src/Titles.cpp b/src/Titles.cpp
+index ab612dc..1030b4a 100644
+--- a/src/Titles.cpp
++++ b/src/Titles.cpp
+@@ -265,6 +265,62 @@ void BackfillTitlesForCharacter(Player* player)
+     }
+ }
+ 
++// Local patch (Paragon test server): inbound merge at login. The stock module
++// only pushes titles outward on the EARNER's save, one-shot against a login
++// snapshot — a target that is online during that single push has the DB write
++// overwritten by its own next character save and there is no retry, so it can
++// never receive the title. Applying the account union to the live player at
++// login makes title sync order-independent (and the player's own save then
++// persists it).
++void MergeAccountTitlesIntoPlayer(Player* player)
++{
++    if (!Config.Enabled || !player)
++        return;
++
++    uint8 const targetRace = player->getRace(true);
++    KnownTitlesMask const ownTitles = GetPlayerKnownTitles(player);
++    KnownTitlesMask merged = ownTitles;
++
++    QueryResult result = CharacterDatabase.Query(
++        "SELECT guid, race, COALESCE(knownTitles, '') "
++        "FROM characters WHERE account = {} AND guid <> {}",
++        player->GetSession()->GetAccountId(), player->GetGUID().GetCounter());
++
++    if (!result)
++        return;
++
++    do
++    {
++        Field* fields = result->Fetch();
++        uint8 const sourceRace = fields[1].Get<uint8>();
++        KnownTitlesMask const sourceTitles = ParseKnownTitles(fields[2].Get<std::string>());
++        MergeTitlesForRace(sourceTitles, sourceRace, targetRace, merged);
++    } while (result->NextRow());
++
++    uint32 applied = 0;
++
++    for (uint32 bitIndex = 0; bitIndex < merged.size() * 32; ++bitIndex)
++    {
++        if (!HasKnownTitle(merged, bitIndex) || HasKnownTitle(ownTitles, bitIndex))
++            continue;
++
++        auto titleItr = TitleIdByBitIndex.find(bitIndex);
++        if (titleItr == TitleIdByBitIndex.end())
++            continue;
++
++        if (CharTitlesEntry const* title = sCharTitlesStore.LookupEntry(titleItr->second))
++        {
++            player->SetTitle(title);
++            ++applied;
++        }
++    }
++
++    if (applied)
++        LOG_INFO("module.accountboundtitles",
++            "AccountBoundTitles: applied {} account title(s) to character {} at login.",
++            applied, player->GetGUID().GetCounter());
++}
++
+ void SyncTitlesFromPlayerToAccount(Player* player)
+ {
+     if (!Config.Enabled || !Config.SyncOnSave || !player)
+@@ -430,6 +486,7 @@ class AccountBoundTitlesPlayerScript : public PlayerScript
+ public:
+     AccountBoundTitlesPlayerScript() : PlayerScript("AccountBoundTitlesPlayerScript", {
+         PLAYERHOOK_ON_LOAD_FROM_DB,
++        PLAYERHOOK_ON_LOGIN,
+         PLAYERHOOK_ON_LOGOUT,
+         PLAYERHOOK_ON_CREATE,
+         PLAYERHOOK_ON_SAVE
+@@ -441,6 +498,15 @@ public:
+             LastKnownTitlesByCharacter[player->GetGUID().GetCounter()] = GetPlayerKnownTitles(player);
+     }
+ 
++    // local patch: inbound account-title merge, see MergeAccountTitlesIntoPlayer
++    void OnPlayerLogin(Player* player) override
++    {
++        MergeAccountTitlesIntoPlayer(player);
++
++        if (player)
++            LastKnownTitlesByCharacter[player->GetGUID().GetCounter()] = GetPlayerKnownTitles(player);
++    }
++
+     void OnPlayerCreate(Player* player) override
+     {
+         if (Config.SyncOnCreate)

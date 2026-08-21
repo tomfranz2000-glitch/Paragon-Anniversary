@@ -1,0 +1,23 @@
+diff --git a/apps/docker/Dockerfile b/apps/docker/Dockerfile
+--- a/apps/docker/Dockerfile
++++ b/apps/docker/Dockerfile
+@@ -52,6 +52,10 @@
+ ARG CSCRIPTS_DEFAULT_LINKAGE="static"
+ ARG CWITH_WARNINGS="ON"
+ ARG CMAKE_EXTRA_OPTIONS=""
++# Build parallelism. Defaults to all cores + 1; override with
++#   --build-arg CBUILD_JOBS=4
++# on a machine where a full-width build would starve other containers.
++ARG CBUILD_JOBS=""
+ ARG GIT_DISCOVERY_ACROSS_FILESYSTEM=1
+ 
+ ARG CCACHE_DIR="/ccache"
+@@ -102,7 +106,7 @@
+        -DCMAKE_CXX_COMPILER_LAUNCHER="ccache"          \
+        -DCMAKE_C_COMPILER_LAUNCHER="ccache"            \
+        -DBoost_USE_STATIC_LIBS="ON"                    \
+-    && cmake --build . --config "$CTYPE" -j $(($(nproc) + 1)) \
++    && cmake --build . --config "$CTYPE" -j "${CBUILD_JOBS:-$(($(nproc) + 1))}" \
+     && cmake --install . --config "$CTYPE"
+ 
+ #############################

@@ -1,0 +1,14 @@
+--- mod_ale.conf.dist
++++ mod_ale.conf
+@@ -63,9 +63,9 @@
+ ALE.Enabled = true
+ ALE.TraceBack = false
+-ALE.ScriptPath = "lua_scripts"
++ALE.ScriptPath = "/azerothcore/env/dist/etc/lua_scripts"
+ ALE.PlayerAnnounceReload = false
+ ALE.RequirePaths = ""
+ ALE.RequireCPaths = ""
+-ALE.AutoReload = false
++ALE.AutoReload = true
+ ALE.AutoReloadInterval = 1
+ ALE.BytecodeCache = true

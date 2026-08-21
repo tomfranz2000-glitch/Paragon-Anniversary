@@ -1,0 +1,894 @@
+diff --git a/src/server/game/Entities/Creature/Creature.cpp b/src/server/game/Entities/Creature/Creature.cpp
+index 1097a598c..38e0d58ab 100644
+--- a/src/server/game/Entities/Creature/Creature.cpp
++++ b/src/server/game/Entities/Creature/Creature.cpp
+@@ -3412,6 +3412,16 @@ float Creature::GetAggroRange(Unit const* target) const
+     auto playerLevel  = getLevelForTarget(target);
+     int32 levelDiff = int32(creatureLevel) - int32(playerLevel);
+ 
++    // §1m Paragon "Provocation" (marker 1900104): while active, creatures
++    // never shrink their aggro radius for a level advantage over the
++    // target (nb: the locals above are misnamed — 'creatureLevel' holds
++    // the TARGET's level). Without this, the flat -1 yd/level term
++    // swallows the marker's MOD_DETECTED_RANGE bonus added below. THIS
++    // function is the live aggro path (CanStartAttack); the twin clamp in
++    // GetAttackDistance only serves the stealth-alert distance.
++    if (levelDiff > 0 && target->HasAura(1900104))
++        levelDiff = 0;
++
+     // The maximum Aggro Radius is capped at 45 yards (25 level difference)
+     if (levelDiff < -25)
+         levelDiff = -25;
+@@ -3624,6 +3634,14 @@ float Creature::GetAttackDistance(Unit const* player) const
+ 
+     int32 levelDiff = static_cast<int32>(playerLevel) - static_cast<int32>(creatureLevel);
+ 
++    // §1m Paragon "Provocation" (marker 1900104): while active, creatures
++    // never shrink their aggro radius for a level advantage over the
++    // player — the flat -1 yd/level term would otherwise swallow the
++    // marker's MOD_DETECTED_RANGE bonus (added below) against deeply
++    // lower-level creatures.
++    if (levelDiff > 0 && player->HasAura(1900104))
++        levelDiff = 0;
++
+     // "The maximum Aggro Radius has a cap of 25 levels under. Example: A level 30 char has the same Aggro Radius of a level 5 char on a level 60 mob."
+     if (levelDiff < -25)
+         levelDiff = -25;
+diff --git a/src/server/game/Entities/Creature/Trainer.cpp b/src/server/game/Entities/Creature/Trainer.cpp
+index 58b61aabb..9d179c9dd 100644
+--- a/src/server/game/Entities/Creature/Trainer.cpp
++++ b/src/server/game/Entities/Creature/Trainer.cpp
+@@ -156,6 +156,16 @@ namespace Trainer
+         if (player->HasSpell(trainerSpell->SpellId))
+             return SpellState::Known;
+ 
++        // paragon reward track ("Paragon Core Patches.md" §1l): a known
++        // HIGHER rank marks lower-rank rows Known instead of red.
++        // Non-stackable chains (auras) remove lower ranks on rank-up, so
++        // after learning a custom top rank the stripped lower rows would
++        // reappear as unlearnable "Unavailable" entries (rank 1 even as
++        // buyable). Semantically the player does know them — superseded.
++        for (uint32 next = sSpellMgr->GetNextSpellInChain(trainerSpell->SpellId); next; next = sSpellMgr->GetNextSpellInChain(next))
++            if (player->HasSpell(next))
++                return SpellState::Known;
++
+         // check race/class requirement
+         if (!player->IsSpellFitByClassAndRace(trainerSpell->SpellId))
+             return SpellState::Unavailable;
+diff --git a/src/server/game/Entities/Item/Item.cpp b/src/server/game/Entities/Item/Item.cpp
+index b3de07789..9a62e17a7 100644
+--- a/src/server/game/Entities/Item/Item.cpp
++++ b/src/server/game/Entities/Item/Item.cpp
+@@ -1015,7 +1015,10 @@ bool Item::HasSocket() const
+ uint8 Item::GetGemCountWithID(uint32 GemID) const
+ {
+     uint8 count = 0;
+-    for (uint32 enchant_slot = SOCK_ENCHANTMENT_SLOT; enchant_slot <= PRISMATIC_ENCHANTMENT_SLOT; ++enchant_slot)
++    // Paragon §1o: scan through PROP_4 (11) — the double-buckle overflow gem
++    // lives there. Random-property enchants in 7-10 have GemID 0 and never
++    // match a real gem id, so the wider range adds no false counts.
++    for (uint32 enchant_slot = SOCK_ENCHANTMENT_SLOT; enchant_slot < MAX_ENCHANTMENT_SLOT; ++enchant_slot)
+     {
+         if (enchant_slot == BONUS_ENCHANTMENT_SLOT)
+             continue;
+@@ -1037,7 +1040,8 @@ uint8 Item::GetGemCountWithID(uint32 GemID) const
+ uint8 Item::GetGemCountWithLimitCategory(uint32 limitCategory) const
+ {
+     uint8 count = 0;
+-    for (uint32 enchant_slot = SOCK_ENCHANTMENT_SLOT; enchant_slot <= PRISMATIC_ENCHANTMENT_SLOT; ++enchant_slot)
++    // Paragon §1o: scan through PROP_4 (11) — see GetGemCountWithID
++    for (uint32 enchant_slot = SOCK_ENCHANTMENT_SLOT; enchant_slot < MAX_ENCHANTMENT_SLOT; ++enchant_slot)
+     {
+         if (enchant_slot == BONUS_ENCHANTMENT_SLOT)
+             continue;
+diff --git a/src/server/game/Entities/Player/Player.cpp b/src/server/game/Entities/Player/Player.cpp
+index c5732626f..43f5c7f54 100644
+--- a/src/server/game/Entities/Player/Player.cpp
++++ b/src/server/game/Entities/Player/Player.cpp
+@@ -4594,7 +4594,11 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness)
+ 
+     sScriptMgr->OnPlayerResurrect(this, restore_percent, applySickness);
+ 
+-    if (!applySickness)
++    // paragon reward track ("Paragon Core Patches.md" §1i): the ghost-sprint
++    // marker also waives spirit-healer resurrection sickness (the only
++    // applySickness=true caller is HandleSpiritHealerActivate; the marker is
++    // a passive aura, so it survives death and is still present here)
++    if (!applySickness || HasAura(1900073))
+     {
+         return;
+     }
+@@ -4864,6 +4868,20 @@ void Player::DurabilityPointsLoss(Item* item, int32 points)
+     if (HasPreventDurabilityLossAura())
+         return;
+ 
++    // paragon reward track ("Paragon Core Patches.md" §1j): every durability
++    // loss funnels through here — scale it by the marker's bp percent, with
++    // probabilistic rounding so 1-point combat ticks stay statistically
++    // exact. bp is spell_dbc data: retune = row edit + restart, no rebuild.
++    if (points > 0)
++        if (AuraEffect const* guard = GetAuraEffect(1900074, EFFECT_0))
++        {
++            int32 keep = 100 - std::max<int32>(0, std::min<int32>(guard->GetAmount(), 100));
++            int32 scaled = points * keep;
++            points = scaled / 100 + ((scaled % 100) > irand(0, 99) ? 1 : 0);
++            if (!points)
++                return;
++        }
++
+     int32 pMaxDurability = item->GetUInt32Value(ITEM_FIELD_MAXDURABILITY);
+     int32 pOldDurability = item->GetUInt32Value(ITEM_FIELD_DURABILITY);
+     int32 pNewDurability = pOldDurability - points;
+@@ -5256,13 +5274,34 @@ uint32 Player::GetShieldBlockValue() const
+     return uint32(value);
+ }
+ 
+-float Player::GetMeleeCritFromAgility()
++// paragon reward track (see "Paragon Core Patches.md" §1g): the level used
++// by every gt-table STAT CONVERSION below (combat ratings, crit-from-stat,
++// dodge-from-agility, regen-per-spirit) — and nothing else. The marker
++// aura's EFFECT_0 basepoints lower it (spell_dbc data: retuning the
++// reduction is a row edit + restart, no rebuild). Without the marker this
++// is exactly the GetLevel()-with-GT-clamp prologue these functions carried.
++uint8 Player::GetStatScalingLevel() const
+ {
+     uint8 level = GetLevel();
+-    uint32 pclass = getClass();
+-
+     if (level > GT_MAX_LEVEL)
+         level = GT_MAX_LEVEL;
++    int32 reduction = 0;
++    // milestones 700 + 925 + 1350 (post-reorder levels) plus the paragon
++    // codex's three Timeless Body rank markers — all stack additively.
++    // THIS LIST IS THE REGISTRY: a new scaling marker needs its id here as
++    // well as a spell_dbc row, or the row is inert.
++    for (uint32 marker : { 1900039u, 1900072u, 1900131u, 1900096u, 1900097u, 1900098u })
++        if (AuraEffect const* scaling = GetAuraEffect(marker, EFFECT_0))
++            reduction += scaling->GetAmount();
++    if (reduction > 0)
++        level = uint8(std::max<int32>(1, int32(level) - reduction));
++    return level;
++}
++
++float Player::GetMeleeCritFromAgility()
++{
++    uint8 level = GetStatScalingLevel();
++    uint32 pclass = getClass();
+ 
+     GtChanceToMeleeCritBaseEntry const* critBase  = sGtChanceToMeleeCritBaseStore.LookupEntry(pclass - 1);
+     GtChanceToMeleeCritEntry     const* critRatio = sGtChanceToMeleeCritStore.LookupEntry((pclass - 1) * GT_MAX_LEVEL + level - 1);
+@@ -5306,12 +5345,9 @@ void Player::GetDodgeFromAgility(float& diminishing, float& nondiminishing)
+         2.00f / 1.15f   // Druid
+     };
+ 
+-    uint8 level = GetLevel();
++    uint8 level = GetStatScalingLevel();
+     uint32 pclass = getClass();
+ 
+-    if (level > GT_MAX_LEVEL)
+-        level = GT_MAX_LEVEL;
+-
+     // Dodge per agility is proportional to crit per agility, which is available from DBC files
+     GtChanceToMeleeCritEntry  const* dodgeRatio = sGtChanceToMeleeCritStore.LookupEntry((pclass - 1) * GT_MAX_LEVEL + level - 1);
+     if (!dodgeRatio || pclass > MAX_CLASSES)
+@@ -5328,12 +5364,9 @@ void Player::GetDodgeFromAgility(float& diminishing, float& nondiminishing)
+ 
+ float Player::GetSpellCritFromIntellect()
+ {
+-    uint8 level = GetLevel();
++    uint8 level = GetStatScalingLevel();
+     uint32 pclass = getClass();
+ 
+-    if (level > GT_MAX_LEVEL)
+-        level = GT_MAX_LEVEL;
+-
+     GtChanceToSpellCritBaseEntry const* critBase  = sGtChanceToSpellCritBaseStore.LookupEntry(pclass - 1);
+     GtChanceToSpellCritEntry     const* critRatio = sGtChanceToSpellCritStore.LookupEntry((pclass - 1) * GT_MAX_LEVEL + level - 1);
+     if (!critBase || !critRatio)
+@@ -5345,10 +5378,7 @@ float Player::GetSpellCritFromIntellect()
+ 
+ float Player::GetRatingMultiplier(CombatRating cr) const
+ {
+-    uint8 level = GetLevel();
+-
+-    if (level > GT_MAX_LEVEL)
+-        level = GT_MAX_LEVEL;
++    uint8 level = GetStatScalingLevel();
+ 
+     GtCombatRatingsEntry const* Rating = sGtCombatRatingsStore.LookupEntry(cr * GT_MAX_LEVEL + level - 1);
+     // gtOCTClassCombatRatingScalarStore.dbc starts with 1, CombatRating with zero, so cr+1
+@@ -5380,12 +5410,9 @@ float Player::GetExpertiseDodgeOrParryReduction(WeaponAttackType attType) const
+ 
+ float Player::OCTRegenHPPerSpirit()
+ {
+-    uint8 level = GetLevel();
++    uint8 level = GetStatScalingLevel();
+     uint32 pclass = getClass();
+ 
+-    if (level > GT_MAX_LEVEL)
+-        level = GT_MAX_LEVEL;
+-
+     GtOCTRegenHPEntry     const* baseRatio = sGtOCTRegenHPStore.LookupEntry((pclass - 1) * GT_MAX_LEVEL + level - 1);
+     GtRegenHPPerSptEntry  const* moreRatio = sGtRegenHPPerSptStore.LookupEntry((pclass - 1) * GT_MAX_LEVEL + level - 1);
+     if (!baseRatio || !moreRatio)
+@@ -5403,12 +5430,9 @@ float Player::OCTRegenHPPerSpirit()
+ 
+ float Player::OCTRegenMPPerSpirit()
+ {
+-    uint8 level = GetLevel();
++    uint8 level = GetStatScalingLevel();
+     uint32 pclass = getClass();
+ 
+-    if (level > GT_MAX_LEVEL)
+-        level = GT_MAX_LEVEL;
+-
+     //    GtOCTRegenMPEntry     const* baseRatio = sGtOCTRegenMPStore.LookupEntry((pclass-1)*GT_MAX_LEVEL + level-1);
+     GtRegenMPPerSptEntry  const* moreRatio = sGtRegenMPPerSptStore.LookupEntry((pclass - 1) * GT_MAX_LEVEL + level - 1);
+     if (!moreRatio)
+@@ -12140,6 +12164,23 @@ void Player::LearnDefaultSkill(uint32 skillId, uint16 rank)
+             {
+                 skillValue = maxValue;
+             }
++            // Paragon §1q: SKILL_LOCKPICKING must be tested BEFORE the Death
++            // Knight branch. Codex node 56 ("Sticky Fingers") opens skill 633 to
++            // every class through a skillraceclassinfo_dbc override, which makes
++            // this ladder reachable for a Death Knight for the first time. The DK
++            // branch hands out (level - 1) * 5 = 395 at level 80, so a DK would be
++            // gifted 395/400 lockpicking on purchase instead of the intended
++            // 1/400 — and worse, be re-pinned to 395 on EVERY login, because
++            // Player::addSpell re-runs LearnDefaultSkill for lockpicking
++            // unconditionally (its !HasSkill guard binds only to the AcquireMethod
++            // leg of that ||), so the DK could never hold 400.
++            // Stock-safe: with stock data a Death Knight cannot reach this
++            // function for skill 633 at all — GetSkillRaceClassInfo returns null
++            // and LearnDefaultSkill early-returns above.
++            else if (skillId == SKILL_LOCKPICKING)
++            {
++                skillValue = std::max<uint16>(1, GetSkillValue(SKILL_LOCKPICKING));
++            }
+             else if (IsClass(CLASS_DEATH_KNIGHT, CLASS_CONTEXT_SKILL))
+             {
+                 skillValue = std::min(std::max<uint16>({ 1, uint16((GetLevel() - 1) * 5) }), maxValue);
+@@ -12148,10 +12189,6 @@ void Player::LearnDefaultSkill(uint32 skillId, uint16 rank)
+             {
+                 skillValue = std::max<uint16>(1, GetSkillValue(SKILL_UNARMED));
+             }
+-            else if (skillId == SKILL_LOCKPICKING)
+-            {
+-                skillValue = std::max<uint16>(1, GetSkillValue(SKILL_LOCKPICKING));
+-            }
+ 
+             SetSkill(skillId, 0, skillValue, maxValue);
+             break;
+@@ -14113,7 +14150,9 @@ InventoryResult Player::CanEquipUniqueItem(Item* pItem, uint8 eslot, uint32 limi
+         return res;
+ 
+     // check unique-equipped on gems
+-    for (uint32 enchant_slot = SOCK_ENCHANTMENT_SLOT; enchant_slot <= PRISMATIC_ENCHANTMENT_SLOT; ++enchant_slot)
++    // Paragon §1o: scan through PROP_4 (11) — the double-buckle overflow gem
++    // lives there (random-property enchants have GemID 0, no false matches)
++    for (uint32 enchant_slot = SOCK_ENCHANTMENT_SLOT; enchant_slot < MAX_ENCHANTMENT_SLOT; ++enchant_slot)
+     {
+         if (enchant_slot == BONUS_ENCHANTMENT_SLOT)
+             continue;
+@@ -14210,6 +14249,12 @@ void Player::HandleFall(MovementInfo const& movementInfo)
+                 if (HasAura(SPELL_DIVINE_PROTECTION))
+                     damage /= 2;
+ 
++                // paragon reward track ("Paragon Core Patches.md" §1k): fall
++                // damage scaled down by the marker's bp percent. bp is
++                // spell_dbc data: retune = row edit + restart, no rebuild.
++                if (AuraEffect const* softLanding = GetAuraEffect(1900075, EFFECT_0))
++                    damage -= damage * uint32(std::max<int32>(0, std::min<int32>(softLanding->GetAmount(), 100))) / 100;
++
+                 final_damage = EnvironmentalDamage(DAMAGE_FALL, damage);
+             }
+ 
+@@ -14358,7 +14403,7 @@ void Player::LearnTalent(uint32 talentId, uint32 talentRank, bool command /*= fa
+         }
+ 
+         // xinef: we do not have enough talent points to add talent of this tier
+-        if (spentPoints < (talentInfo->Row * MAX_TALENT_RANK))
++        if (spentPoints < (talentInfo->Row * TALENT_POINTS_PER_TIER))
+             return;
+     }
+ 
+diff --git a/src/server/game/Entities/Player/Player.h b/src/server/game/Entities/Player/Player.h
+index cd1747d44..eaf585917 100644
+--- a/src/server/game/Entities/Player/Player.h
++++ b/src/server/game/Entities/Player/Player.h
+@@ -1996,6 +1996,8 @@ public:
+     float GetSpellCritFromIntellect();
+     float OCTRegenHPPerSpirit();
+     float OCTRegenMPPerSpirit();
++    // paragon reward track §1g: level used by the gt-table stat conversions
++    [[nodiscard]] uint8 GetStatScalingLevel() const;
+     [[nodiscard]] float GetRatingMultiplier(CombatRating cr) const;
+     [[nodiscard]] float GetRatingBonusValue(CombatRating cr) const;
+     uint32 GetBaseSpellPowerBonus() { return m_baseSpellPower; }
+diff --git a/src/server/game/Entities/Unit/Unit.cpp b/src/server/game/Entities/Unit/Unit.cpp
+index 1f84f4002..d1c70c8ed 100644
+--- a/src/server/game/Entities/Unit/Unit.cpp
++++ b/src/server/game/Entities/Unit/Unit.cpp
+@@ -11154,6 +11154,14 @@ void Unit::UpdateSpeed(UnitMoveType mtype, bool forced)
+                     main_speed_mod  = GetMaxPositiveAuraModifier(SPELL_AURA_MOD_INCREASE_SPEED);
+                     stack_bonus     = GetTotalAuraMultiplier(SPELL_AURA_MOD_SPEED_ALWAYS);
+                     non_stack_bonus += GetMaxPositiveAuraModifier(SPELL_AURA_MOD_SPEED_NOT_STACK) / 100.0f;
++                    // paragon reward track ("Paragon Core Patches.md" §1i):
++                    // ghost sprint — while dead, the marker's bp ADDS to the
++                    // ghost form's own +50% (8326 EFFECT_1, the max-picked
++                    // winner here). bp is spell_dbc data: retune = row edit +
++                    // restart, no rebuild.
++                    if (!IsAlive())
++                        if (AuraEffect const* ghostSprint = GetAuraEffect(1900073, EFFECT_0))
++                            main_speed_mod += ghostSprint->GetAmount();
+                 }
+                 break;
+             }
+@@ -11288,6 +11296,21 @@ void Unit::UpdateSpeed(UnitMoveType mtype, bool forced)
+ 
+     // Apply strongest slow aura mod to speed
+     int32 slow = GetMaxNegativeAuraModifier(SPELL_AURA_MOD_DECREASE_SPEED);
++
++    // paragon reward track (see "Paragon Core Patches.md" §1f): the slow
++    // attenuation marker aura weakens incoming slow effects by its own
++    // EFFECT_0 basepoints percent. The percent is spell_dbc data, so
++    // retuning or tiering the milestone is a row edit + restart, no
++    // rebuild. Integer division truncates toward zero — in the slowed
++    // unit's favor. Applied before the minimum-speed floor below, which
++    // stays authoritative.
++    if (slow)
++        if (AuraEffect const* attenuation = GetAuraEffect(1900037, EFFECT_0))
++        {
++            int32 reduction = std::max<int32>(0, std::min<int32>(attenuation->GetAmount(), 100));
++            slow = slow * (100 - reduction) / 100;
++        }
++
+     if (slow)
+         AddPct(speed, slow);
+ 
+@@ -11752,6 +11775,14 @@ void Unit::ModSpellCastTime(SpellInfo const* spellInfo, int32& castTime, Spell*
+         default:
+             break;
+     }
++
++    if (spellInfo->HasAura(SPELL_AURA_MOUNTED)) // paragon reward track: faster mounting
++    {
++        if (HasAura(1900005)) // level 100
++            castTime = std::max(castTime - 1000, 0);
++        if (HasAura(1900071)) // level 750 (stacks: standard 1500ms mounts become instant)
++            castTime = std::max(castTime - 500, 0);
++    }
+ }
+ 
+ DiminishingLevels Unit::GetDiminishing(DiminishingGroup group)
+diff --git a/src/server/game/Handlers/ItemHandler.cpp b/src/server/game/Handlers/ItemHandler.cpp
+index 93430dbe9..81fd519f3 100644
+--- a/src/server/game/Handlers/ItemHandler.cpp
++++ b/src/server/game/Handlers/ItemHandler.cpp
+@@ -1279,6 +1279,16 @@ void WorldSession::HandleSocketOpcode(WorldPackets::Item::SocketGems& packet)
+         OldEnchants[i] = itemTarget->GetEnchantmentId(EnchantmentSlot(SOCK_ENCHANTMENT_SLOT + i));
+     }
+ 
++    // Paragon §1o: the double-buckle overflow gem lives in PROP_4 (11) and must
++    // join the same-item unique/limit checks below (the widened Item/Player
++    // scans cover the cross-item directions, but this handler reads only its
++    // local arrays). Random-property enchants never carry a GemID, so this is
++    // inert on stock items.
++    ItemTemplate const* paragonGemProto = nullptr;
++    if (uint32 paragonEnchant = itemTarget->GetEnchantmentId(PROP_ENCHANTMENT_SLOT_4))
++        if (SpellItemEnchantmentEntry const* paragonEntry = sSpellItemEnchantmentStore.LookupEntry(paragonEnchant))
++            paragonGemProto = sObjectMgr->GetItemTemplate(paragonEntry->GemID);
++
+     // check unique-equipped conditions
+     for (int i = 0; i < MAX_GEM_SOCKETS; ++i)
+     {
+@@ -1316,6 +1326,13 @@ void WorldSession::HandleSocketOpcode(WorldPackets::Item::SocketGems& packet)
+                     }
+                 }
+             }
++
++            // Paragon §1o: same unique gem already in the overflow socket
++            if (paragonGemProto && iGemProto->ItemId == paragonGemProto->ItemId)
++            {
++                _player->SendEquipError(EQUIP_ERR_ITEM_UNIQUE_EQUIPPABLE_SOCKETED, itemTarget, nullptr);
++                return;
++            }
+         }
+ 
+         // unique limit type item
+@@ -1343,6 +1360,10 @@ void WorldSession::HandleSocketOpcode(WorldPackets::Item::SocketGems& packet)
+                     }
+                 }
+ 
++                // Paragon §1o: gem in the overflow socket counts toward the cap
++                if (paragonGemProto && iGemProto->ItemLimitCategory == paragonGemProto->ItemLimitCategory)
++                    ++limit_newcount;
++
+                 if (limit_newcount > 0 && uint32(limit_newcount) > limitEntry->maxCount)
+                 {
+                     _player->SendEquipError(EQUIP_ERR_ITEM_UNIQUE_EQUIPPABLE_SOCKETED, itemTarget, nullptr);
+diff --git a/src/server/game/Spells/Auras/SpellAuras.cpp b/src/server/game/Spells/Auras/SpellAuras.cpp
+index d539ea79f..fa64b95a3 100644
+--- a/src/server/game/Spells/Auras/SpellAuras.cpp
++++ b/src/server/game/Spells/Auras/SpellAuras.cpp
+@@ -1936,6 +1936,102 @@ bool Aura::IsAuraStronger(Aura const* newAura) const
+     return false;
+ }
+ 
++// paragon reward track: players who know the marker spell keep two class auras
++// (SPELL_SPECIFIC_AURA — paladin auras) active at once instead of one
++static constexpr uint32 PARAGON_DUAL_AURA_MARKER = 1900008;
++
++// Pairwise contract of Aura::CanStackWith: returning false removes the existing aura.
++// Below the cap of two everything stacks; at the cap only the newest existing class
++// aura survives next to the incoming one, so casting a third swaps out the oldest.
++// The cap is counted on the caster and excludes the incoming aura by identity, which
++// also keeps area-aura re-applications on group members from tripping it.
++static bool ParagonAllowDualAura(Aura const* incoming, Aura const* existing)
++{
++    if (incoming->GetSpellInfo()->GetSpellSpecific() != SPELL_SPECIFIC_AURA
++            || existing->GetSpellInfo()->GetSpellSpecific() != SPELL_SPECIFIC_AURA)
++        return false;
++
++    Unit* caster = incoming->GetCaster();
++    if (!caster || !caster->IsPlayer() || !caster->ToPlayer()->HasSpell(PARAGON_DUAL_AURA_MARKER))
++        return false;
++
++    Aura const* newest = nullptr;
++    uint32 count = 0;
++    for (auto const& itr : caster->GetAppliedAuras())
++    {
++        Aura const* candidate = itr.second->GetBase();
++        if (candidate == incoming || candidate->GetCasterGUID() != incoming->GetCasterGUID())
++            continue;
++
++        if (candidate->GetSpellInfo()->GetSpellSpecific() != SPELL_SPECIFIC_AURA)
++            continue;
++
++        ++count;
++        if (!newest || candidate->GetApplyTime() > newest->GetApplyTime()
++                || (candidate->GetApplyTime() == newest->GetApplyTime() && candidate->GetId() > newest->GetId()))
++            newest = candidate;
++    }
++
++    return count < 2 || existing == newest;
++}
++
++// paragon reward track (see "Paragon Core Patches.md" §1h): players who know
++// the marker keep TWO of their blessings active per target instead of one.
++// Blessing cross-kind exclusivity is spell_group 1010 (the same-caster
++// umbrella of negative subgroup refs); same-kind pairs (Might vs Greater
++// Might) share a SUBGROUP, get the umbrella pruned in
++// CheckSpellGroupStackRules, and resolve through their own EXCLUSIVE /
++// EXCLUSIVE_HIGHEST branches above ours — so they stay exclusive with no
++// extra code. Membership is checked against group 1010 itself, so future
++// blessing-set changes stay data-driven.
++static constexpr uint32 PARAGON_DUAL_BLESSING_MARKER = 1900056;
++static constexpr uint32 PARAGON_BLESSING_SPELL_GROUP = 1010;
++
++static bool ParagonIsBlessingGroupMember(SpellInfo const* spellInfo)
++{
++    return sSpellMgr->IsSpellMemberOfSpellGroup(
++        spellInfo->GetFirstRankSpell()->Id, SpellGroup(PARAGON_BLESSING_SPELL_GROUP));
++}
++
++// Pairwise contract mirrors ParagonAllowDualAura: below the cap of two
++// everything stacks; at the cap only the newest existing blessing survives
++// next to the incoming one, so casting a third swaps out the oldest. The
++// count runs on the TARGET's aura map (blessings land on others, unlike the
++// self-anchored class auras) and only over this caster's blessings.
++static bool ParagonAllowDualBlessing(Aura const* incoming, Aura const* existing)
++{
++    if (!ParagonIsBlessingGroupMember(incoming->GetSpellInfo())
++            || !ParagonIsBlessingGroupMember(existing->GetSpellInfo()))
++        return false;
++
++    Unit* caster = incoming->GetCaster();
++    if (!caster || !caster->IsPlayer() || !caster->ToPlayer()->HasSpell(PARAGON_DUAL_BLESSING_MARKER))
++        return false;
++
++    Unit* target = incoming->GetUnitOwner();
++    if (!target)
++        return false;
++
++    Aura const* newest = nullptr;
++    uint32 count = 0;
++    for (auto const& itr : target->GetAppliedAuras())
++    {
++        Aura const* candidate = itr.second->GetBase();
++        if (candidate == incoming || candidate->GetCasterGUID() != incoming->GetCasterGUID())
++            continue;
++
++        if (!ParagonIsBlessingGroupMember(candidate->GetSpellInfo()))
++            continue;
++
++        ++count;
++        if (!newest || candidate->GetApplyTime() > newest->GetApplyTime()
++                || (candidate->GetApplyTime() == newest->GetApplyTime() && candidate->GetId() > newest->GetId()))
++            newest = candidate;
++    }
++
++    return count < 2 || existing == newest;
++}
++
+ bool Aura::CanStackWith(Aura const* existingAura) const
+ {
+     // Can stack with self
+@@ -1976,7 +2072,11 @@ bool Aura::CanStackWith(Aura const* existingAura) const
+     // check spell specific stack rules
+     if (m_spellInfo->IsAuraExclusiveBySpecificWith(existingSpellInfo)
+             || (sameCaster && m_spellInfo->IsAuraExclusiveBySpecificPerCasterWith(existingSpellInfo)))
+-        return false;
++    {
++        // paragon reward track: dual-aura milestone
++        if (!(sameCaster && ParagonAllowDualAura(this, existingAura)))
++            return false;
++    }
+ 
+     // check spell group stack rules
+     switch (sSpellMgr->CheckSpellGroupStackRules(m_spellInfo, existingSpellInfo))
+@@ -1985,7 +2085,8 @@ bool Aura::CanStackWith(Aura const* existingAura) const
+         case SPELL_GROUP_STACK_RULE_EXCLUSIVE_HIGHEST: // if it reaches this point, existing aura is lower/equal
+             return false;
+         case SPELL_GROUP_STACK_RULE_EXCLUSIVE_FROM_SAME_CASTER:
+-            if (sameCaster)
++            // paragon reward track: dual-blessing milestone (§1h)
++            if (sameCaster && !ParagonAllowDualBlessing(this, existingAura))
+                 return false;
+             break;
+         case SPELL_GROUP_STACK_RULE_DEFAULT:
+diff --git a/src/server/game/Spells/SpellEffects.cpp b/src/server/game/Spells/SpellEffects.cpp
+index 207bdd554..5f5699493 100644
+--- a/src/server/game/Spells/SpellEffects.cpp
++++ b/src/server/game/Spells/SpellEffects.cpp
+@@ -15,6 +15,8 @@
+  * with this program. If not, see <http://www.gnu.org/licenses/>.
+  */
+ 
++#include <array>
++
+ #include "Battleground.h"
+ #include "BattlegroundIC.h"
+ #include "BattlegroundMgr.h"
+@@ -2855,6 +2857,181 @@ void Spell::EffectTradeSkill(SpellEffIndex /*effIndex*/)
+     // m_caster->ToPlayer()->SetSkill(skillid, skillval?skillval:1, skillmax+75);
+ }
+ 
++// Paragon reward-track patch (see "Paragon Core Patches.md" §1e): extra
++// permanent enchant slots. Marker spell (BASE + i), when known by the item
++// OWNER, unlocks the (i+1)-th extra permanent enchant on items matching that
++// marker's EquippedItemClass/subclass/inventory-type columns — spell_dbc
++// data, so raising the limit or extending to other item types is marker rows
++// + Lua only, no rebuild. On enchant, the previous permanent enchant shifts
++// into the first free extra slot (cascading and dropping the oldest when
++// full). Extra slots reuse enchantment slots that never carry a permanent
++// enchant natively: the prismatic slot and gem slots without a template
++// socket, skipping any slot holding a socket-granting enchant (belt buckle),
++// so gems and buckles are never displaced. All 12 slots are applied, procced
++// and persisted by slot-agnostic stock code.
++// Explicit id list, NOT a base+count range: 1900010-13 are the Divine
++// Strength rank 6-9 talent spells (EquippedItemClass -1, so they pass the
++// item-fit check) — a range starting at 1900009 counted a learned rank 6 as
++// a second enchant marker.
++// 1900009 = milestone 275 weapon marker; 1900033 = milestone 725's third
++// weapon slot; 1900057-66 = milestone 725's per-slot armor/ring/shield
++// ladder; 1900034-35 + 1900067-70 = reserved spares so future tiers stay
++// marker rows + Lua only (ids must stay clear of other custom spells —
++// check the docs §2a ledger before assigning).
++static constexpr std::array<uint32, 18> PARAGON_EXTRA_ENCHANT_MARKERS =
++    { 1900009, 1900033, 1900034, 1900035,
++      1900057, 1900058, 1900059, 1900060, 1900061, 1900062, 1900063,
++      1900064, 1900065, 1900066, 1900067, 1900068, 1900069, 1900070 };
++
++static bool ParagonSlotHoldsSocketEnchant(Item const* item, EnchantmentSlot slot)
++{
++    uint32 enchantId = item->GetEnchantmentId(slot);
++    if (!enchantId)
++        return false;
++    SpellItemEnchantmentEntry const* enchant = sSpellItemEnchantmentStore.LookupEntry(enchantId);
++    if (!enchant)
++        return false;
++    for (uint8 s = 0; s < MAX_SPELL_ITEM_ENCHANTMENT_EFFECTS; ++s)
++        if (enchant->type[s] == ITEM_ENCHANTMENT_TYPE_PRISMATIC_SOCKET)
++            return true;
++    return false;
++}
++
++static void ParagonShiftPermEnchant(Player* owner, Item* item, uint32 incomingEnchantId)
++{
++    uint32 capacity = 0;
++    for (uint32 markerId : PARAGON_EXTRA_ENCHANT_MARKERS)
++    {
++        if (!owner->HasSpell(markerId))
++            continue;
++        SpellInfo const* marker = sSpellMgr->GetSpellInfo(markerId);
++        if (marker && item->IsFitToSpellRequirements(marker))
++            ++capacity;
++    }
++    if (!capacity)
++        return;
++
++    uint32 previous = item->GetEnchantmentId(PERM_ENCHANTMENT_SLOT);
++    if (!previous || previous == incomingEnchantId)
++        return;
++
++    // usable extra slots, in shift order
++    EnchantmentSlot const candidates[] = { PRISMATIC_ENCHANTMENT_SLOT,
++        SOCK_ENCHANTMENT_SLOT_3, SOCK_ENCHANTMENT_SLOT_2, SOCK_ENCHANTMENT_SLOT };
++    EnchantmentSlot chain[4];
++    uint32 chainLength = 0;
++    for (EnchantmentSlot slot : candidates)
++    {
++        if (chainLength >= capacity)
++            break;
++        if (slot != PRISMATIC_ENCHANTMENT_SLOT
++            && item->GetTemplate()->Socket[slot - SOCK_ENCHANTMENT_SLOT].Color)
++            continue; // a real gem socket
++        if (ParagonSlotHoldsSocketEnchant(item, slot))
++            continue;
++        chain[chainLength++] = slot;
++    }
++    if (!chainLength)
++        return;
++
++    // the incoming enchant may already occupy an extra slot: clear that copy,
++    // it is about to become the primary again
++    for (uint32 i = 0; i < chainLength; ++i)
++    {
++        if (item->GetEnchantmentId(chain[i]) == incomingEnchantId)
++        {
++            owner->ApplyEnchantment(item, chain[i], false);
++            item->SetEnchantment(chain[i], 0, 0, 0);
++        }
++    }
++
++    // place the previous primary into the first free extra slot; when all are
++    // occupied, cascade down (the last chain slot's enchant is lost)
++    uint32 target = chainLength;
++    for (uint32 i = 0; i < chainLength; ++i)
++    {
++        if (!item->GetEnchantmentId(chain[i]))
++        {
++            target = i;
++            break;
++        }
++    }
++    if (target == chainLength)
++    {
++        target = 0;
++        for (uint32 i = chainLength - 1; i > 0; --i)
++        {
++            owner->ApplyEnchantment(item, chain[i], false);
++            item->SetEnchantment(chain[i], item->GetEnchantmentId(chain[i - 1]), 0, 0);
++            owner->ApplyEnchantment(item, chain[i], true);
++        }
++    }
++    owner->ApplyEnchantment(item, chain[target], false);
++    item->SetEnchantment(chain[target], previous, 0, 0);
++    owner->ApplyEnchantment(item, chain[target], true);
++}
++
++// paragon reward track §1e addendum (eager shift): after a permanent enchant
++// lands, immediately relocate it from the primary slot into a free extra
++// slot while capacity remains — the primary slot then stays EMPTY as the
++// landing pad for the next cast. The client fires its REPLACE_ENCHANT
++// confirmation whenever the primary slot is occupied, and that popup cannot
++// be accepted by addon code (ReplaceEnchant() is protected —
++// ADDON_ACTION_FORBIDDEN; the old addon-side auto-accept worked only by
++// taint-state accident and is deleted). With the pad kept empty the popup
++// appears exactly when accepting would truly overwrite: capacity full.
++static void ParagonEagerShiftNewEnchant(Player* owner, Item* item)
++{
++    uint32 enchantId = item->GetEnchantmentId(PERM_ENCHANTMENT_SLOT);
++    if (!enchantId)
++        return;
++
++    uint32 capacity = 0;
++    for (uint32 markerId : PARAGON_EXTRA_ENCHANT_MARKERS)
++    {
++        if (!owner->HasSpell(markerId))
++            continue;
++        SpellInfo const* marker = sSpellMgr->GetSpellInfo(markerId);
++        if (marker && item->IsFitToSpellRequirements(marker))
++            ++capacity;
++    }
++    if (!capacity)
++        return;
++
++    EnchantmentSlot const candidates[] = { PRISMATIC_ENCHANTMENT_SLOT,
++        SOCK_ENCHANTMENT_SLOT_3, SOCK_ENCHANTMENT_SLOT_2, SOCK_ENCHANTMENT_SLOT };
++    uint32 seen = 0;
++    EnchantmentSlot freeSlot = MAX_ENCHANTMENT_SLOT;
++    for (EnchantmentSlot slot : candidates)
++    {
++        if (seen >= capacity)
++            break;
++        if (slot != PRISMATIC_ENCHANTMENT_SLOT
++            && item->GetTemplate()->Socket[slot - SOCK_ENCHANTMENT_SLOT].Color)
++            continue; // a real gem socket
++        if (ParagonSlotHoldsSocketEnchant(item, slot))
++            continue;
++        ++seen;
++        // re-applying an enchant already parked in an extra slot: clear the
++        // old copy so the item never carries it twice
++        if (item->GetEnchantmentId(slot) == enchantId)
++        {
++            owner->ApplyEnchantment(item, slot, false);
++            item->SetEnchantment(slot, 0, 0, 0);
++        }
++        if (freeSlot == MAX_ENCHANTMENT_SLOT && !item->GetEnchantmentId(slot))
++            freeSlot = slot;
++    }
++    if (freeSlot == MAX_ENCHANTMENT_SLOT)
++        return; // capacity physically full: enchant stays primary, and the
++                // next cast's replace confirmation means a real overwrite
++
++    owner->ApplyEnchantment(item, PERM_ENCHANTMENT_SLOT, false);
++    item->SetEnchantment(PERM_ENCHANTMENT_SLOT, 0, 0, 0);
++    item->SetEnchantment(freeSlot, enchantId, 0, 0, owner->GetGUID());
++    owner->ApplyEnchantment(item, freeSlot, true);
++}
++
+ void Spell::EffectEnchantItemPerm(SpellEffIndex effIndex)
+ {
+     if (effectHandleMode != SPELL_EFFECT_HANDLE_HIT_TARGET)
+@@ -2898,6 +3075,10 @@ void Spell::EffectEnchantItemPerm(SpellEffIndex effIndex)
+         if (!item_owner)
+             return;
+ 
++        // Paragon: shift the previous enchant into an extra slot when the
++        // owner's markers grant capacity (see helpers above)
++        ParagonShiftPermEnchant(item_owner, itemTarget, enchant_id);
++
+         // remove old enchanting before applying new if equipped
+         item_owner->ApplyEnchantment(itemTarget, PERM_ENCHANTMENT_SLOT, false);
+ 
+@@ -2906,6 +3087,10 @@ void Spell::EffectEnchantItemPerm(SpellEffIndex effIndex)
+         // add new enchanting if equipped
+         item_owner->ApplyEnchantment(itemTarget, PERM_ENCHANTMENT_SLOT, true);
+ 
++        // paragon: keep the primary slot empty while capacity remains (see
++        // the eager-shift helper above)
++        ParagonEagerShiftNewEnchant(item_owner, itemTarget);
++
+         if (item_owner != p_caster && p_caster->GetSession()->HasPermission(rbac::RBAC_PERM_LOG_GM_TRADE))
+         {
+             LOG_GM(p_caster->GetSession()->GetAccountId(), "GM {} (Account: {}) enchanting(perm): {} (SpellID: {} EncID: {}) on {}'s item: {} (Entry: {})",
+diff --git a/src/server/game/Spells/SpellInfo.cpp b/src/server/game/Spells/SpellInfo.cpp
+index 3494dc9c0..4855e5d1b 100644
+--- a/src/server/game/Spells/SpellInfo.cpp
++++ b/src/server/game/Spells/SpellInfo.cpp
+@@ -16,6 +16,7 @@
+  */
+ 
+ #include "SpellInfo.h"
++#include "AreaDefines.h"
+ #include "Chat.h"
+ #include "ConditionMgr.h"
+ #include "Corpse.h"
+@@ -1527,7 +1528,52 @@ SpellCastResult SpellInfo::CheckLocation(uint32 map_id, uint32 zone_id, uint32 a
+             areaEntry = sAreaTableStore.LookupEntry(zone_id);
+         }
+ 
+-        if (!areaEntry || !areaEntry->IsFlyable() || (strict && (areaEntry->flags & AREA_FLAG_NO_FLY_ZONE) != 0) || !player->canFlyInZone(map_id, zone_id, this))
++        // §1r Paragon "Skies of Azeroth" (marker 1900130): the vanilla
++        // continents are shut to flight for one reason only — no AreaTable row
++        // on map 0 or 1 carries AREA_FLAG_OUTLAND (verified: 0 of 499 map-0 and
++        // 0 of 473 map-1 areas), and that single flag is the whole of
++        // IsFlyable(). Waive ONLY that term, ONLY on those two maps, and ONLY
++        // for a marker holder.
++        //
++        // Deliberately NOT done by flagging the areas or by editing
++        // IsFlyable(): sAreaTableStore is one process-wide store, so either
++        // route is global and would also hand flying mounts to every
++        // playerbot — mod-playerbots BotCanUseFlyingMount reads this exact
++        // predicate (CheckMountStateAction.cpp).
++        //
++        // `player &&` MUST STAY FIRST. The trailing canFlyInZone term
++        // dereferences player, and on maps 0/1 it is currently unreachable
++        // only because !IsFlyable() short-circuits ahead of it — Spell.cpp
++        // passes nullptr for a creature caster and PlayerUpdates.cpp passes it
++        // explicitly for controlled units. Ordering the guard this way means
++        // the null path is never widened for anyone.
++        //
++        // This is the attribute's ONLY enforcement site, and it serves BOTH
++        // the cast check (Spell.cpp) and the area-update aura stripper
++        // (PlayerUpdates.cpp), so this one waiver covers both taking off and
++        // staying airborne across subzone boundaries. NO_FLY_ZONE and the
++        // Northrend Cold Weather Flying rule are left fully intact.
++        // Keyed on the VIRTUAL continent, not the raw map id. Seven playable
++        // zones physically live on map 530 but are conceptually Azeroth, and
++        // WorldMapArea.dbc says so via virtual_map_id: Eversong Woods,
++        // Ghostlands, Silvermoon City and Isle of Quel'Danas -> 0; Azuremyst
++        // Isle, Bloodmyst Isle and The Exodar -> 1. Real Outland zones carry
++        // virtual_map_id -1 and fall back to 530, so they are untouched, and
++        // NOTHING on map 571 remaps to 0/1 (verified against the DBC: exactly
++        // 7 rows resolve to 0 or 1, all of them the zones above), so Cold
++        // Weather Flying cannot be bypassed this way. Using the raw map id
++        // here instead would either miss those seven zones or, if 530 were
++        // added wholesale, open all of Outland.
++        uint32 const paragonVMap = GetVirtualMapForMapAndZone(map_id, zone_id);
++        bool const paragonSkies = player
++            && (paragonVMap == MAP_EASTERN_KINGDOMS
++                || paragonVMap == MAP_KALIMDOR)
++            && player->HasSpell(1900130);
++
++        if (!areaEntry
++            || (!areaEntry->IsFlyable() && !paragonSkies)
++            || (strict && (areaEntry->flags & AREA_FLAG_NO_FLY_ZONE) != 0)
++            || !player->canFlyInZone(map_id, zone_id, this))
+         {
+             return SPELL_FAILED_INCORRECT_AREA;
+         }
+diff --git a/src/server/scripts/Spells/spell_generic.cpp b/src/server/scripts/Spells/spell_generic.cpp
+index 80c93904a..746218d62 100644
+--- a/src/server/scripts/Spells/spell_generic.cpp
++++ b/src/server/scripts/Spells/spell_generic.cpp
+@@ -4130,6 +4130,25 @@ public:
+             uint32 map = GetVirtualMapForMapAndZone(target->GetMapId(), target->GetZoneId());
+             if (map == MAP_OUTLAND || (map == MAP_NORTHREND && target->HasSpell(SPELL_COLD_WEATHER_FLYING)))
+                 canFly = true;
++            // §1r Paragon "Skies of Azeroth" (marker 1900130): this script
++            // computes canFly ITSELF and never calls SpellInfo::CheckLocation,
++            // so the waiver has to be repeated here or these wrappers stay
++            // grounded for holders. `map` is already the virtual continent, so
++            // the same two constants cover the seven map-530 zones too.
++            //
++            // This is not cosmetic. THREE of the nine wrappers -- Winged Steed
++            // (:6292), Blazing Hippogryph (:6295) and X-53 Touring Rocket
++            // (:6297) -- are registered with mount0 = mount60 = mount100 = 0,
++            // i.e. they have NO ground variant. Without this branch canFly is
++            // false, `mount` resolves to _mount100 == 0, the `if (mount)` block
++            // below is skipped, PreventHitAura() never runs, and the wrapper's
++            // own bare SPELL_AURA_MOUNTED applies: the player gets the mount
++            // model at walking speed, GCD spent, no error. That state became
++            // reachable only once §1r let the cast through -- before it,
++            // CheckLocation rejected these outright on maps 0/1.
++            else if ((map == MAP_EASTERN_KINGDOMS || map == MAP_KALIMDOR)
++                     && target->HasSpell(1900130))
++                canFly = true;
+ 
+             AreaTableEntry const* area = sAreaTableStore.LookupEntry(target->GetAreaId());
+             // Xinef: add battlefield check
+diff --git a/src/server/shared/DataStores/DBCStructure.h b/src/server/shared/DataStores/DBCStructure.h
+index 3db5fe364..f3d68a2d5 100644
+--- a/src/server/shared/DataStores/DBCStructure.h
++++ b/src/server/shared/DataStores/DBCStructure.h
+@@ -1951,7 +1951,12 @@ struct SummonPropertiesEntry
+     uint32  Flags;                                          // 5
+ };
+ 
+-#define MAX_TALENT_RANK 5
++// Talent.dbc reserves 9 rank slots per talent; retail content never fills more
++// than 5. Raised to 9 for the paragon reward track's extended talent ranks -
++// see "Paragon Core Patches.md". Tier gating keeps its own constant below,
++// since it means "points per tree row", not "rank slots".
++#define MAX_TALENT_RANK 9
++#define TALENT_POINTS_PER_TIER 5                            // points spent in a tree to unlock its next row
+ #define MAX_PET_TALENT_RANK 3                               // use in calculations, expected <= MAX_TALENT_RANK
+ #define MAX_TALENT_TABS 3
+ 
+@@ -1961,8 +1966,7 @@ struct TalentEntry
+     uint32    TalentTab;                                    // 1 index in TalentTab.dbc (TalentTabEntry)
+     uint32    Row;                                          // 2
+     uint32    Col;                                          // 3
+-    std::array<uint32, MAX_TALENT_RANK> RankID;             // 4-8
+-    // uint32 spellRank [4]                                 // 9-12 not used, always 0, maybe not used high ranks
++    std::array<uint32, MAX_TALENT_RANK> RankID;             // 4-12 (6-9 unused by retail talents, always 0)
+     uint32    DependsOn;                                    // 13 preReqTalent1 index in Talent.dbc (TalentEntry)
+     // uint32 preReqTalent[2]                               // 14-15 not used
+     uint32    DependsOnRank;                                // 16 preReqRank1
+diff --git a/src/server/shared/DataStores/DBCfmt.h b/src/server/shared/DataStores/DBCfmt.h
+index a037847da..767d9c8ce 100644
+--- a/src/server/shared/DataStores/DBCfmt.h
++++ b/src/server/shared/DataStores/DBCfmt.h
+@@ -118,7 +118,7 @@ char constexpr SpellShapeshiftFormEntryfmt[] = "nxxxxxxxxxxxxxxxxxxiixiiixxiiiii
+ char constexpr SpellVisualfmt[] = "dxxxxxxiixxxxxxxxxxxxxxxxxxxxxxx";
+ char constexpr StableSlotPricesfmt[] = "ni";
+ char constexpr SummonPropertiesfmt[] = "niiiii";
+-char constexpr TalentEntryfmt[] = "niiiiiiiixxxxixxixxixxx";
++char constexpr TalentEntryfmt[] = "niiiiiiiiiiiiixxixxixxx";
+ char constexpr TalentTabEntryfmt[] = "nxxxxxxxxxxxxxxxxxxxiiix";
+ char constexpr TaxiNodesEntryfmt[] = "nifffssssssssssssssssxii";
+ char constexpr TaxiPathEntryfmt[] = "niii";
