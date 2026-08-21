@@ -536,9 +536,25 @@ MARKERS = [
       "overrides": { "EquippedItemClass": 4, "EquippedItemSubclass": 0, "EquippedItemInvTypes": 1 << 14 } },
 ]
 
-# Server-only spells: spell_dbc rows the CLIENT never sees (the invisible
-# aura family of 1900003-05). Emitted to SQL only — never staged into the
-# MPQs, so adding or editing one is a worldserver restart, no client touch.
+# Reward-track auras that predated this generator. These are built from a
+# blank record so the result matches their deliberately tiny live rows, while
+# still carrying client names, icons and tooltips. Emitted to BOTH spell_dbc
+# and the client MPQs.
+REWARD_AURAS = [
+    { "id": 1900003, "name": "Paragon Swiftness", "icon_clone": 2983,
+      "aura": 31, "basepoints": 49,
+      "description": "Increases movement speed by 50% while out of combat." },
+    { "id": 1900004, "name": "Paragon Aquatic Grace", "icon_clone": 1066,
+      "aura": 58, "basepoints": 99,
+      "description": "Increases swim speed by 100%." },
+    { "id": 1900005, "name": "Paragon Quick Mount", "icon_clone": 458,
+      "aura": 4, "basepoints": 0,
+      "description": "Reduces mount casting time by 1 second." },
+]
+
+# Server-only spells: spell_dbc rows the CLIENT intentionally never sees.
+# Emitted to SQL only — never staged into the MPQs, so adding or editing one
+# is a worldserver restart, no client touch.
 # Baseline mirrors MARKERS (hidden passive dummy aura, self-target,
 # infinite); per-entry overrides tune it. bp convention: value = bp + die.
 SERVER_SPELLS = [
@@ -811,6 +827,25 @@ def load_generated_class_data():
 
 
 CUSTOM_SPELLS = [
+    # Milestone 125 (Paladin): an instant caster-centered holy burst equal to
+    # a Consecration rank's full eight-second total. This used to live in the
+    # separate legacy generator and consequently never reached the client
+    # MPQs. The donor is Holy Nova's proven instant PBAoE damage row.
+    { "id": 1900014, "name": "Paragon Consecration Burst", "clone": 48078,
+      "subtext": "Rank 9",
+      "description": "Unleashes the full damage of your Consecration "
+                     "instantly around you.",
+      "overrides": {
+          "EffectBasePoints_1": 0, "EffectDieSides_1": 1,
+          "EffectRadiusIndex_1": 14,
+          "ManaCostPct": 0, "ManaCost": 0,
+          "SpellClassSet": 0,
+          "SpellClassMask_1": 0, "SpellClassMask_2": 0,
+          "SpellClassMask_3": 0,
+      },
+      "bonus": { "direct": 0.32, "dot": 0, "ap": 0.32, "ap_dot": 0,
+                 "comment": "Paragon - Consecration Burst "
+                            "(8x Consecration tick coefficients)" } },
     # Milestone 350 (Paladin): Faithful Leap. TWO-SPELL ARCHITECTURE — the
     # client half is a plain AoE-click dummy, the jump is server-side:
     # packet-probe-verified that the client casts the Heroic Leap prototype
@@ -1244,6 +1279,38 @@ def mysql(sql, db="acore_world"):
             if line and not line.startswith("mysql:")]
 
 
+def audit_client_spell_coverage(server_rows, client_ids, server_only_ids):
+    """Require every Paragon server spell to be client-side or intentional."""
+    client_ids = list(client_ids)
+    seen_ids = set()
+    duplicate_ids = set()
+    for sid in client_ids:
+        if sid in seen_ids:
+            duplicate_ids.add(sid)
+        seen_ids.add(sid)
+    duplicate_ids = sorted(duplicate_ids)
+    if duplicate_ids:
+        raise ValueError("duplicate generated client spell ids: %s"
+                         % ", ".join(map(str, duplicate_ids)))
+
+    client_ids = set(client_ids)
+    server_only_ids = set(server_only_ids)
+    overlap = sorted(client_ids & server_only_ids)
+    if overlap:
+        raise ValueError("spell ids declared both client-side and server-only: %s"
+                         % ", ".join(map(str, overlap)))
+
+    missing = [(int(sid), name) for sid, name in server_rows
+               if int(sid) not in client_ids and int(sid) not in server_only_ids]
+    if missing:
+        raise ValueError(
+            "custom server spells missing from the client generator:\n%s\n"
+            "Add each spell to a client-side generator list, or explicitly to "
+            "SERVER_SPELLS when it must remain server-only."
+            % "\n".join("  %d %s" % row for row in missing))
+    return len(client_ids), len(server_only_ids), len(server_rows)
+
+
 def extract_dbc(name):
     path = os.path.join(CACHE, name)
     if os.path.exists(path):
@@ -1369,8 +1436,11 @@ def main():
         off = addstr(text)
         for n, _t, _u in cols:
             if n.startswith("Name_Lang_") and not n.endswith("_Mask"):
-                if struct.unpack_from("<i", rec, idx[n] * 4)[0]:
+                if (n == "Name_Lang_enUS"
+                        or struct.unpack_from("<i", rec, idx[n] * 4)[0]):
                     struct.pack_into("<i", rec, idx[n] * 4, off)
+        if not struct.unpack_from("<i", rec, idx["Name_Lang_Mask"] * 4)[0]:
+            struct.pack_into("<i", rec, idx["Name_Lang_Mask"] * 4, LOC_MASK)
 
     def blank_descriptions(rec):
         for n, t, _u in cols:
@@ -1563,6 +1633,32 @@ def main():
         sql.append(record_to_sql(rec))
         all_new_spell_ids.append(m["id"])
 
+    # ---- early reward-track auras (client + server) ------------------------
+    for m in REWARD_AURAS:
+        icon_off = spell_off.get(m["icon_clone"])
+        if icon_off is None:
+            sys.exit("reward aura icon donor %d missing" % m["icon_clone"])
+        icon_id = struct.unpack_from(
+            "<i", sblob, icon_off + idx["SpellIconID"] * 4)[0]
+        rec = bytearray(srsz)
+        overrides = {
+            "ID": m["id"], "ProcChance": 101, "DurationIndex": 21,
+            "RangeIndex": 1, "EquippedItemClass": -1,
+            "Effect_1": 6, "EffectAura_1": m["aura"],
+            "EffectBasePoints_1": m["basepoints"], "EffectDieSides_1": 1,
+            "ImplicitTargetA_1": 1, "SpellIconID": icon_id,
+            "SchoolMask": 1,
+        }
+        for field, value in overrides.items():
+            struct.pack_into("<i", rec, idx[field] * 4, value)
+        set_name(rec, m["name"])
+        set_description(rec, m["description"])
+        set_aura_description(rec, m["description"])
+        new_records.extend(rec)
+        sql.append("DELETE FROM spell_dbc WHERE ID = %d;" % m["id"])
+        sql.append(record_to_sql(rec))
+        all_new_spell_ids.append(m["id"])
+
     # ---- server-only spells (SQL only, never staged into the MPQs) ---------
     for m in SERVER_SPELLS:
         overrides = {
@@ -1682,8 +1778,24 @@ def main():
             for tid in trainer_ids:
                 sql.append("INSERT INTO trainer_spell (TrainerId, SpellId, MoneyCost, ReqSkillLine, ReqSkillRank, "
                            "ReqAbility1, ReqAbility2, ReqAbility3, ReqLevel) VALUES (%d, %d, %d, 0, 0, %d, %d, 0, 80);" % (
-                    tid, r["new_id"], r["cost"], r.get("req", TRAINER_REQ_MARKER), r.get("req2", 0)))
+                            tid, r["new_id"], r["cost"], r.get("req", TRAINER_REQ_MARKER), r.get("req2", 0)))
         all_new_spell_ids.append(r["new_id"])
+
+    # Any spell in Paragon's reserved database range must either be staged for
+    # the client or deliberately declared in SERVER_SPELLS. This is the guard
+    # that would have caught 1900003/4/5/14 before an incomplete MPQ shipped.
+    server_custom_spells = [(int(sid), name) for sid, name in mysql(
+        "SELECT ID, COALESCE(Name_Lang_enUS, '') FROM spell_dbc "
+        "WHERE ID >= 1900000 AND ID < 2000000 ORDER BY ID;")]
+    try:
+        client_count, server_only_count, database_count = audit_client_spell_coverage(
+            server_custom_spells, all_new_spell_ids,
+            [m["id"] for m in SERVER_SPELLS])
+    except ValueError as exc:
+        sys.exit(str(exc))
+    print("custom spell coverage: %d client-generated, %d declared server-only, "
+          "%d currently in spell_dbc -- no unexplained server-only rows"
+          % (client_count, server_only_count, database_count))
 
     # ---- SkillLineAbility.dbc: the 3.3.5 client only DISPLAYS trainer entries
     # for spells present in this DBC (it drives the trainer window's category
