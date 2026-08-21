@@ -178,6 +178,11 @@ local function UpdatePlayerExperience(player, paragon, source_type, entry)
         return false
     end
 
+    -- local patch (account-wide paragon): bots never collect paragon experience
+    if player.IsPlayerBot and player:IsPlayerBot() then
+        return false
+    end
+
     paragon, source_type, entry = Mediator.On("OnBeforeUpdatePlayerExperience", {
         arguments = { player, paragon, source_type, entry },
         defaults = { paragon, source_type, entry },
@@ -326,6 +331,32 @@ end
 ---
 function OnParagonClientLoadRequest(player, _)
     if not player then
+        return false
+    end
+
+    -- Bots have no client, so every opcode this function sends is discarded
+    -- after being built and serialized -- including the whole reward track
+    -- (opcode 7), which is 60 milestones with per-class labels and talent
+    -- coordinates. Bots also never send the addon request that is this
+    -- function's OTHER caller, so the only way they get here is the login
+    -- path in Hook.OnPlayerStatLoad.
+    --
+    -- Skipping it also stops OnAfterClientLoadRequest firing for them, which
+    -- is what was registering three 10s tickers per bot. Nothing is lost:
+    -- every subscriber to that event either only pushes client state, or
+    -- reconciles something that self-gates on IsPlayerBot anyway
+    -- (paragon_gem_double, paragon_rare_hunter, paragon_solo_dungeon).
+    --
+    -- !! DO NOT REASON FROM "BOTS ARE ALWAYS AT PARAGON 0" HERE !!
+    -- That is true of every RNDBOT and false of the one case that matters.
+    -- `.bot add` on the owner's OWN character builds a fresh WorldSession
+    -- with isBot = true and logs it in from the DB, so IsPlayerBot() is true
+    -- while the paragon object still carries that ACCOUNT's real level --
+    -- 1750, not 0. Every gate in this system has to hold on its own terms
+    -- for a bot-flagged session at a high paragon level; an argument that
+    -- leans on the level being 0 is not an argument. (paragon_dual_enchant
+    -- shipped a bot bug for exactly this class of reasoning.)
+    if player.IsPlayerBot and player:IsPlayerBot() then
         return false
     end
 
@@ -577,6 +608,13 @@ end
 ---
 function Hook.OnPlayerLogout(event, player)
     if not player then
+        return
+    end
+
+    -- local patch (account-wide paragon): a bot's logout must never save —
+    -- with LEVEL_LINKED_TO_ACCOUNT its stale level/xp copy would overwrite
+    -- the account row the real player has been advancing
+    if player.IsPlayerBot and player:IsPlayerBot() then
         return
     end
 

@@ -14,6 +14,9 @@
 
 local Object = Object or require("classic")
 
+-- Lua 5.2+: unpack moved to table.unpack
+local unpack = unpack or table.unpack
+
 ---@class Mediator
 ---@field private events table<string, table> Registered callbacks by event name
 local Mediator = Object:extend()

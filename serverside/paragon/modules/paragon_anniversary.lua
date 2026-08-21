@@ -180,8 +180,13 @@ end
 --- @return The modified experience value
 ---
 local function OnExperienceCalculated(player, paragon, source_type, specific_experience)
+    -- local patch (mount-xp composability): return ONLY when actually
+    -- modifying. The mediator merges position-1 returns first-registered-
+    -- wins, so the original unconditional `return specific_experience`
+    -- permanently starved every later-registered modifier subscriber
+    -- (paragon_mount_xp.lua). Polite convention: nil = no opinion.
     if not player or not paragon then
-        return specific_experience
+        return
     end
 
     -- Get the experience multiplier based on paragon level
@@ -189,10 +194,8 @@ local function OnExperienceCalculated(player, paragon, source_type, specific_exp
 
     -- Apply multiplier to experience
     if multiplier ~= 1.0 then
-        specific_experience = specific_experience * multiplier
+        return specific_experience * multiplier
     end
-
-    return specific_experience
 end
 
 -- ============================================================================
