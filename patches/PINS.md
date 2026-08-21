@@ -25,3 +25,9 @@ The server Lua will not load on stock `mod-eluna`. `05-mod-ale.patch` adds the
 (36) hooks, an `IsPlayerBot` method, and widens `ItemMethods` to the full
 enchantment-slot range. It is Paragon-exclusive, which is why it lives here as
 a patch rather than as its own fork.
+
+Paragon also depends on mod-ale's `ObjectVariables.ext`, which defines
+`SetData` and `GetData`. CMake installing the extension is not sufficient for
+the production Docker image: copy the module's complete `LuaEngine/extensions`
+directory into the configured `ALE.ScriptPath` as documented in
+[`doc/INSTALL.md`](../doc/INSTALL.md#step-1-copy-the-paragon-scripts-and-ale-extensions).

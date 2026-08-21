@@ -27,18 +27,46 @@ All dependencies are included in the project.
 
 ## 🚀 Server-Side Installation (Lua Scripts)
 
-### Step 1: Copy the Paragon Folder
+### Step 1: Copy the Paragon Scripts and ALE Extensions
 
-Copy the entire `paragon` folder to your ALE scripts directory:
+Copy the repository's `serverside/paragon` folder to the directory configured
+as `ALE.ScriptPath`:
 
 ```bash
-# Typical AzerothCore ALE scripts location:
-cp -r paragon /path/to/lua_scripts/
+cp -r /path/to/Paragon-Anniversary/serverside/paragon /path/to/lua_scripts/
 ```
+
+Paragon also requires ALE's bundled extensions. In particular,
+`ObjectVariables.ext` provides the `player:SetData(...)` and
+`player:GetData(...)` methods used by the Paragon modules. Copy the complete
+extension directory into that **same** script path:
+
+```bash
+cp -r /path/to/azerothcore/modules/mod-ale/src/LuaEngine/extensions \
+      /path/to/lua_scripts/
+```
+
+For the repository's Docker layout and the supplied `mod_ale.conf` patch, run
+this from the AzerothCore checkout:
+
+```bash
+mkdir -p env/dist/etc/lua_scripts/extensions
+cp -r modules/mod-ale/src/LuaEngine/extensions/. \
+      env/dist/etc/lua_scripts/extensions/
+```
+
+This copy is required even after a successful Docker rebuild. CMake installs
+the extensions under `bin/lua_scripts`, but the production worldserver image
+copies only the executable and ALE is configured to read the bind-mounted
+`env/dist/etc/lua_scripts` directory.
 
 **Directory structure after copy:**
 ```
 your_ale_scripts_directory/
+├── extensions/
+│   ├── ObjectVariables.ext
+│   ├── _Misc.ext
+│   └── StackTracePlus/
 └── paragon/
     ├── lib/
     │   ├── classic/
@@ -123,13 +151,33 @@ SELECT COUNT(*) FROM paragon_config;
 
 ### Step 4: Verify ALE Configuration
 
-Ensure your ALE configuration in `mod-ale.conf` includes:
+Ensure `ALE.ScriptPath` in `mod-ale.conf` names the directory that contains
+both `paragon/` and `extensions/`.
+
+For a native install launched from the server's `bin` directory:
 
 ```ini
 # Lua Engine settings
 ALE.Enabled = 1
 ALE.ScriptPath = "lua_scripts"
 ```
+
+For the repository's Docker layout:
+
+```ini
+ALE.Enabled = 1
+ALE.ScriptPath = "/azerothcore/env/dist/etc/lua_scripts"
+```
+
+Before starting the server, verify this file exists relative to that exact
+path:
+
+```text
+extensions/ObjectVariables.ext
+```
+
+Changing only `ALE.ScriptPath` is not sufficient: ALE cannot add `SetData` and
+`GetData` to its object metatables unless the extension file is present there.
 
 ### Step 5: Start the Server
 
@@ -329,6 +377,24 @@ Once the client addon is complete:
 ---
 
 ## 🔧 Troubleshooting
+
+### Error: `SetData` or `GetData` is nil on player login
+
+**Example:**
+
+```text
+paragon_transmog_bonus.lua:304: attempt to call method 'SetData' (a nil value)
+paragon_collection_rewards.lua:197: attempt to call method 'SetData' (a nil value)
+```
+
+**Cause:** ALE found the Paragon scripts but did not find its
+`ObjectVariables.ext` extension under the configured `ALE.ScriptPath`.
+
+**Fix:** Copy the complete
+`modules/mod-ale/src/LuaEngine/extensions` directory into `ALE.ScriptPath`, as
+shown in server-side installation Step 1, then restart the worldserver. A Lua
+reload is not a reliable substitute because the extension modifies ALE object
+metatables during engine initialization.
 
 ### Error: "Database schema not initialized!" or "Database not found!"
 

@@ -1,10 +1,12 @@
 --- mod_ale.conf.dist
 +++ mod_ale.conf
-@@ -63,9 +63,9 @@
+@@ -63,9 +63,11 @@
  ALE.Enabled = true
  ALE.TraceBack = false
 -ALE.ScriptPath = "lua_scripts"
 +ALE.ScriptPath = "/azerothcore/env/dist/etc/lua_scripts"
++# Paragon requires mod-ale/LuaEngine/extensions copied into this path.
++# See doc/INSTALL.md; the Docker runtime image does not include them.
  ALE.PlayerAnnounceReload = false
  ALE.RequirePaths = ""
  ALE.RequireCPaths = ""

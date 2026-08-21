@@ -132,13 +132,17 @@ Configure `LEVEL_LINKED_TO_ACCOUNT` in `paragon_config`:
 
 ## 🚀 Quick Installation
 
-### Quick Start (3 Steps)
+### Quick Start (4 Steps)
 
-1. 📁 Copy the `paragon` folder to your ALE scripts directory
-2. 🔄 Restart your AzerothCore server (tables auto-create)
-3. ⚙️ Configure `paragon_config` table with your desired settings
+1. 📁 Copy `serverside/paragon` to the directory configured as `ALE.ScriptPath`
+2. 🧩 Copy `modules/mod-ale/src/LuaEngine/extensions` from your AzerothCore checkout into that same directory (Paragon requires `ObjectVariables.ext`)
+3. 🔄 Restart your AzerothCore server (tables auto-create)
+4. ⚙️ Configure `paragon_config` table with your desired settings
 
-> **📝 Note**: Requires ALE engine installed on AzerothCore
+> [!IMPORTANT]
+> Installing mod-ale is not enough in Docker: its runtime image omits the ALE
+> extension files. Copy them into the bind-mounted script path explicitly; see
+> the [detailed installation guide](doc/INSTALL.md#step-1-copy-the-paragon-scripts-and-ale-extensions).
 
 ### 📖 Detailed Installation Guide
 
