@@ -781,15 +781,31 @@ SERVER_SPELLS = [
 _GEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated")
 if _GEN not in sys.path:
     sys.path.insert(0, _GEN)
-try:
-    from class_talent_ranks import CLASS_TALENT_RANKS
-    from class_trainer_ranks import CLASS_SPELL_RANKS
-except ImportError as _e:      # regenerate, do not silently ship a short list
-    sys.exit("missing generated class data (%s) -- rerun "
-             "gen_class_talents.py --emit and "
-             "gen_class_trainers.py --emit" % _e)
-TALENT_RANKS = TALENT_RANKS + CLASS_TALENT_RANKS
-SPELL_RANKS = SPELL_RANKS + CLASS_SPELL_RANKS
+_CLASS_DATA_LOADED = False
+
+
+def load_generated_class_data():
+    """Load generator output only when building the complete client patch.
+
+    The class generators import this module for ``extract_dbc`` and ``mysql``.
+    Requiring their own output during that import creates a bootstrap cycle on
+    a fresh clone, so the completeness guard belongs on the patch entry point.
+    """
+    global _CLASS_DATA_LOADED
+    if _CLASS_DATA_LOADED:
+        return
+
+    try:
+        from class_talent_ranks import CLASS_TALENT_RANKS
+        from class_trainer_ranks import CLASS_SPELL_RANKS
+    except ImportError as exc:  # regenerate; never silently ship a short list
+        sys.exit("missing generated class data (%s) -- rerun "
+                 "gen_class_talents.py --emit and "
+                 "gen_class_trainers.py --emit" % exc)
+
+    TALENT_RANKS.extend(CLASS_TALENT_RANKS)
+    SPELL_RANKS.extend(CLASS_SPELL_RANKS)
+    _CLASS_DATA_LOADED = True
 
 
 CUSTOM_SPELLS = [
@@ -1251,6 +1267,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args()
+
+    load_generated_class_data()
 
     cols = [(n, t, "unsigned" in ct) for n, t, ct in mysql(
         "SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE FROM information_schema.COLUMNS "
