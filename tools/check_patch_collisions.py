@@ -6,6 +6,8 @@ client's real mount ladder and then, for every file the Paragon patches ship,
 reports which archive actually wins.
 
     python check_patch_collisions.py
+    python check_patch_collisions.py --general-name patch-Y.MPQ \
+        --locale-name patch-enUS-Y.MPQ
 
 WHY THIS EXISTS
 ---------------
@@ -35,6 +37,7 @@ makes contents unenumerable but never unqueryable: we know exactly which names
 we care about, so we hash those and look them up. The listfile, when present,
 is used only for the informational per-archive summary.
 """
+import argparse
 import ctypes
 import ctypes.wintypes as wt
 import os
@@ -45,14 +48,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CLIENT_DATA = os.path.abspath(os.path.join(HERE, "..", "Client", "Data"))
 LOCALE = "enUS"
 
-# The archives this project owns, highest-priority last. Anything else found in
-# the Data folder is third-party by definition.
-OURS = ["patch-W.MPQ", "patch-X.MPQ", os.path.join(LOCALE, "patch-enUS-X.MPQ")]
+UI_ART_ARCHIVE = "patch-W.MPQ"
+DEFAULT_GENERAL_NAME = "patch-X.MPQ"
+DEFAULT_LOCALE_NAME = "patch-enUS-X.MPQ"
 
 sys.path.insert(0, HERE)
 from build_mpq import (hash_string, decrypt_block,          # noqa: E402
                        HASH_TABLE_OFFSET, HASH_NAME_A, HASH_NAME_B,
-                       HASH_FILE_KEY)
+                       HASH_FILE_KEY, OWNER_MARKER_NAME,
+                       is_owned_archive, validate_patch_name)
 
 
 # --------------------------------------------------------------------------
@@ -168,7 +172,11 @@ def listfile_of(path):
     """Best-effort content summary; None when the author omitted (listfile)."""
     try:
         from mpyq import MPQArchive
-        raw = MPQArchive(path).read_file(b"(listfile)")
+        archive = MPQArchive(path)
+        try:
+            raw = archive.read_file(b"(listfile)")
+        finally:
+            archive.file.close()
     except Exception:
         return None
     if raw is None:
@@ -178,20 +186,53 @@ def listfile_of(path):
 
 # --------------------------------------------------------------------------
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--general-name", default=DEFAULT_GENERAL_NAME,
+                    metavar="PATCH-?.MPQ")
+    ap.add_argument("--locale-name", default=DEFAULT_LOCALE_NAME,
+                    metavar="PATCH-ENUS-?.MPQ")
+    args = ap.parse_args()
+    try:
+        validate_patch_name(args.general_name)
+        validate_patch_name(args.locale_name, locale=True)
+    except ValueError as exc:
+        ap.error(str(exc))
+
+    generated = [args.general_name,
+                 os.path.join(LOCALE, args.locale_name)]
+    foreign_targets = [rel for rel in generated
+                       if os.path.exists(os.path.join(CLIENT_DATA, rel))
+                       and not is_owned_archive(os.path.join(CLIENT_DATA, rel))]
+    ours = [UI_ART_ARCHIVE] + [rel for rel in generated
+                               if os.path.exists(os.path.join(CLIENT_DATA, rel))
+                               and is_owned_archive(os.path.join(CLIENT_DATA, rel))]
     ladder = mount_ladder()
-    ours_rel = set(o.lower() for o in OURS)
+    ours_rel = set(o.lower() for o in ours)
+    configured_rel = set(o.lower() for o in generated)
 
     print("MOUNT LADDER (last wins)")
     print("-" * 68)
-    missing_ours = set(ours_rel)
+    missing_ours = set(o.lower() for o in [UI_ART_ARCHIVE] + generated)
     for prio, rel in ladder:
         full = os.path.join(CLIENT_DATA, rel)
         if not os.path.exists(full):
             continue
-        tag = "  <-- ours" if rel.lower() in ours_rel else ""
-        missing_ours.discard(rel.lower())
+        if rel.lower() in ours_rel:
+            tag = "  <-- ours"
+            missing_ours.discard(rel.lower())
+        elif rel.lower() in configured_rel:
+            tag = "  <-- configured target, NOT Paragon-owned"
+        else:
+            tag = ""
         print("  prio %-3d %-34s%s" % (prio, rel, tag))
     print()
+    if foreign_targets:
+        print("!! REFUSING TO CLAIM CONFIGURED TARGET(S) WITHOUT THE PARAGON MARKER:")
+        for rel in foreign_targets:
+            print("     %s" % rel)
+        print("   Choose free archive names when building and pass those same names")
+        print("   to this checker with --general-name and --locale-name.")
+        return 1
     if missing_ours:
         print("!! expected archive(s) not on the ladder: %s"
               % ", ".join(sorted(missing_ours)))
@@ -216,13 +257,13 @@ def main():
 
     # what do we ship?
     our_files = {}
-    for rel in OURS:
+    for rel in ours:
         full = os.path.join(CLIENT_DATA, rel)
         if not os.path.exists(full):
             continue
         names = listfile_of(full) or []
         for n in names:
-            if n.lower() != "(listfile)":
+            if n.lower() not in ("(listfile)", OWNER_MARKER_NAME.lower()):
                 our_files.setdefault(n, []).append(rel)
     if not our_files:
         sys.exit("could not read our own archives -- nothing to check")

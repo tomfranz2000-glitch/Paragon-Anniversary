@@ -270,9 +270,21 @@ The client-side UI is currently **in development**. Basic functionality is worki
 
 #### As a Patch/FrameXML
 
-1. Copy `patch-X.MPQ` to the client's `Data/` directory
-2. Copy `patch-enUS-X.MPQ` to the client's `Data/enUS/` directory
-3. Fully restart the client and test in game
+The generator defaults to `patch-X.MPQ` in the client's `Data/` directory and
+`patch-enUS-X.MPQ` in `Data/enUS/`. It will only replace an existing archive
+that carries its Paragon ownership marker; an unrelated or older unmarked
+archive at either path makes the build stop before any generated files change.
+
+If either default name is already occupied, select a free one-character suffix:
+
+```powershell
+python tools/paragon_client_patch.py --general-name patch-Y.MPQ `
+    --locale-name patch-enUS-Y.MPQ
+```
+
+Use the same options with `tools/check_patch_collisions.py`, then fully restart
+the client and test in game. Move or remove obsolete unmarked Paragon archives
+manually only after confirming their contents; the tools never delete them.
 
 ---
 

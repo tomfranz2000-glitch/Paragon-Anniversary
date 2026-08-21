@@ -7,9 +7,10 @@ slice of the content).
 Emits, from the three config tables below:
   - generated/paragon_content.sql : spell_dbc rows (talent ranks, spell ranks,
     markers), talent_dbc override, spell_ranks chain rows, npc_trainer rows
-  - Client/Data/patch-X.MPQ + Client/Data/enUS/patch-enUS-X.MPQ with the
-    patched Talent.dbc + Spell.dbc (built from pristine extracts every run;
-    includes the client-only mount move-cast pass — milestone 750, see the
+  - Client/Data/patch-X.MPQ + Client/Data/enUS/patch-enUS-X.MPQ by default,
+    containing the patched Talent.dbc + Spell.dbc (built from pristine
+    extracts every run; includes the client-only mount move-cast pass —
+    milestone 750, see the
     comment block in main())
 
 After applying: worldserver restart + full client restart.
@@ -17,6 +18,7 @@ Related Lua gates live in paragon_rework_track.lua (EXTENDED_TALENTS,
 LEARNED_SPELL_SPECIALS, CONSECRATION_BURST.totals).
 
 Usage: python paragon_client_patch.py [--apply]
+       [--general-name patch-X.MPQ] [--locale-name patch-enUS-X.MPQ]
 """
 import argparse
 import os
@@ -1035,16 +1037,14 @@ STAGE_GENERAL = os.path.join(HERE, "stage-general", "DBFilesClient")
 # patch-W.MPQ is the Paragon UI art. It has NO generator here -- its source
 # BLPs are not in the tree -- so it is only ever renamed by hand, and the
 # only copy that exists besides the live one is Tools/mpq-backup/.
-MPQ_GENERAL = os.path.abspath(os.path.join(CLIENT_DATA, "patch-X.MPQ"))
-MPQ_LOCALE = os.path.abspath(os.path.join(CLIENT_DATA, "enUS", "patch-enUS-X.MPQ"))
-# The names this tool wrote before the rename. Deleted on every run so a stale
-# copy can never linger in the mount list.
+DEFAULT_GENERAL_NAME = "patch-X.MPQ"
+DEFAULT_LOCALE_NAME = "patch-enUS-X.MPQ"
+# The names this tool wrote before the rename. They predate ownership markers,
+# so their presence is reported but they are never deleted automatically.
 LEGACY_MPQS = [os.path.abspath(os.path.join(CLIENT_DATA, "patch-5.MPQ")),
                os.path.abspath(os.path.join(CLIENT_DATA, "enUS", "patch-enUS-5.MPQ"))]
 DB_CONTAINER = "ac-database"
 DB_PASS = os.environ.get("ACORE_DB_PASS", "")
-if not DB_PASS:
-    raise SystemExit("set ACORE_DB_PASS to your world DB password")
 SPELL_FIELDS, TALENT_FIELDS, MAX_RANK_SLOTS = 234, 23, 9
 
 # Codex node 59 "Skies of Azeroth": every CLIENT record carrying
@@ -1233,6 +1233,8 @@ SOLO_CAPSTONE_ICON_NAMES = ["Glory of the Hero", "Northrend Dungeonmaster"]
 
 
 def mysql(sql, db="acore_world"):
+    if not DB_PASS:
+        sys.exit("set ACORE_DB_PASS to your world DB password")
     r = subprocess.run(
         ["docker", "exec", "-i", DB_CONTAINER, "mysql", "-uroot", "-p" + DB_PASS, "-N", db],
         input=sql.encode(), capture_output=True)
@@ -1266,7 +1268,34 @@ def extract_dbc(name):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument(
+        "--general-name", default=DEFAULT_GENERAL_NAME, metavar="PATCH-?.MPQ",
+        help="general client archive basename (default: %(default)s)")
+    ap.add_argument(
+        "--locale-name", default=DEFAULT_LOCALE_NAME, metavar="PATCH-ENUS-?.MPQ",
+        help="enUS client archive basename (default: %(default)s)")
     args = ap.parse_args()
+
+    from build_mpq import (UnsafeArchiveError, assert_safe_output,
+                           validate_patch_name)
+    try:
+        validate_patch_name(args.general_name)
+        validate_patch_name(args.locale_name, locale=True)
+    except ValueError as exc:
+        ap.error(str(exc))
+
+    mpq_general = os.path.abspath(os.path.join(CLIENT_DATA, args.general_name))
+    mpq_locale = os.path.abspath(
+        os.path.join(CLIENT_DATA, "enUS", args.locale_name))
+    try:
+        # Do this before loading data, touching stages, writing SQL, or removing
+        # anything. A filename is not proof that an existing archive is ours.
+        assert_safe_output(mpq_general)
+        assert_safe_output(mpq_locale)
+    except UnsafeArchiveError as exc:
+        sys.exit(str(exc))
+    print("client archive outputs: %s, %s"
+          % (os.path.basename(mpq_general), os.path.basename(mpq_locale)))
 
     load_generated_class_data()
     for stage in (STAGE_LOCALE, STAGE_GENERAL):
@@ -2261,16 +2290,16 @@ def main():
           % (len(mirrored), ", ".join(mirrored)))
 
     for old_mpq in LEGACY_MPQS:
-        if os.path.exists(old_mpq):
-            try:
-                os.remove(old_mpq)
-                print("retired legacy " + os.path.basename(old_mpq))
-            except OSError as exc:
-                print("WARNING: legacy %s still present (%s) -- close the client "
-                      "and delete it by hand" % (os.path.basename(old_mpq), exc))
+        if (os.path.exists(old_mpq)
+                and os.path.normcase(old_mpq) not in {
+                    os.path.normcase(mpq_general), os.path.normcase(mpq_locale)}):
+            print("WARNING: possible legacy archive %s was not removed because "
+                  "its ownership cannot be proven; inspect and remove it by hand "
+                  "if it is an obsolete Paragon patch"
+                  % os.path.basename(old_mpq))
 
-    for stage, mpq in ((os.path.dirname(STAGE_GENERAL), MPQ_GENERAL),
-                       (os.path.dirname(STAGE_LOCALE), MPQ_LOCALE)):
+    for stage, mpq in ((os.path.dirname(STAGE_GENERAL), mpq_general),
+                       (os.path.dirname(STAGE_LOCALE), mpq_locale)):
         r = subprocess.run([sys.executable, os.path.join(HERE, "build_mpq.py"), stage, mpq],
                            capture_output=True, text=True)
         print(r.stdout.strip() or r.stderr.strip())

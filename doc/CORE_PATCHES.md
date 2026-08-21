@@ -2899,7 +2899,7 @@ a hardcoded list, so a DBC added later is covered without anyone remembering.
 The locale archive is still written and still correct; it is now a redundant
 lower-priority fallback.
 
-### The names
+### The default names
 
 | was | now | holds |
 |---|---|---|
@@ -2911,8 +2911,15 @@ lower-priority fallback.
 `patch-C` / `patch-D` / `patch-F`) while **leaving Y and Z free on purpose**:
 those are what a mod author reaches for when told "use a late letter", and a
 same-name drop is an *overwrite*, which is worse than losing a priority
-contest. `paragon_client_patch.py` deletes the legacy `patch-5` /
-`patch-enUS-5` on every run so a stale copy can never linger in the mount list.
+contest. The names are configurable with `--general-name` and `--locale-name`
+when another patch already occupies either default.
+
+Every generated archive carries `ParagonAnniversary\owner.txt`. The generator
+checks that exact marker before replacing an existing target and aborts before
+touching stages or SQL if ownership cannot be proven. It also writes to a
+temporary file and atomically replaces a known-owned archive only after the new
+MPQ verifies. Legacy `patch-5` / `patch-enUS-5` files are reported but never
+deleted automatically because the old archives predate the marker.
 
 ### !! patch-W.MPQ HAS NO GENERATOR !!
 
@@ -2966,6 +2973,8 @@ reports which archive actually wins for every file we ship.
 
 ```
 python Tools/check_patch_collisions.py
+python Tools/check_patch_collisions.py --general-name patch-Y.MPQ \
+    --locale-name patch-enUS-Y.MPQ
 ```
 
 It **probes the MPQ hash table directly instead of reading `(listfile)`**,
@@ -2973,7 +2982,8 @@ because a listfile is an ordinary file inside the archive that plenty of patch
 authors omit -- that makes an archive unenumerable but never unqueryable, and
 we know exactly which names we care about. It also flags archives present but
 never mountable (a two-character suffix like `patch-10.MPQ` is invisible to
-the client) and refuses to treat an unparseable archive as empty.
+the client), refuses to treat an unparseable archive as empty, and verifies the
+ownership marker instead of assuming that a configured filename is ours.
 
 Verified by injecting a fake `patch-Z.MPQ` carrying `DBFilesClient\Spell.dbc`
 and `Interface\Paragon\ParagonUI.blp`: both were reported, with the winning
