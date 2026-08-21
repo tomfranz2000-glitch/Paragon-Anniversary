@@ -1,0 +1,23 @@
+## Interface: 30300
+## Title: Paragon Anniversary
+## Notes: Client UI for the Paragon-Anniversary server module (addon port of the upstream FrameXML patch)
+
+lib\c_timer.lua
+lib\smallfolk.lua
+lib\CMH.lua
+MicroButton.lua
+Templates\UITemplate2X.xml
+Paragon\UIParagon.xml
+Paragon\Paragon_RewardTrack.lua
+Paragon\Paragon_TalentMask.lua
+Paragon\Paragon_GlyphSlot.lua
+Paragon\Paragon_ExpToast.lua
+Paragon\Paragon_EnchantText.lua
+Paragon\Paragon_DualEnchant.lua
+Paragon\Paragon_DoubleBuckle.lua
+Paragon\Paragon_HolyLightProc.lua
+Paragon\Paragon_SpiritTooltip.lua
+Paragon\Paragon_ScalingLevel.lua
+Paragon\Paragon_Codex.lua
+Paragon\Paragon_RacialPick.lua
+Paragon\ParagonExpBar.xml

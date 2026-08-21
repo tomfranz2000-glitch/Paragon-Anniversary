@@ -1,0 +1,619 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ../UI.xsd">
+
+    <!-- Load Lua modules in order -->
+    <Script file="Paragon_Locales.lua"/>
+    <Script file="Paragon_Network.lua"/>
+    <Script file="Paragon_Animations.lua"/>
+    <Script file="Paragon_Tutorial.lua"/>
+    <Script file="Paragon_Interface.lua"/>
+    <Script file="Paragon_TargetLevel.lua"/>
+
+    <!-- Custom Font -->
+    <Font name="Game24Font" virtual="true" font="Fonts\FRIZQT__.ttf">
+        <FontHeight val="24"/>
+    </Font>
+
+    <!-- Divider Template -->
+    <Frame name="ParagonDivider" virtual="true">
+        <Size x="650" y="16"/>
+        <Layers>
+            <Layer>
+                <Texture file="Interface/Journeys/JourneysFrame2x">
+                    <TexCoords left="0.158691" right="0.874512" top="0.655762" bottom="0.671387"/>
+                </Texture>
+            </Layer>
+        </Layers>
+    </Frame>
+
+    <Frame name="ParagonCharacterLevel" parent="PlayerFrame" hidden="false" frameLevel="999">
+        <Size x="50" y="50"/>
+        <Anchors>
+            <Anchor point="CENTER" x="-40" y="-30"></Anchor>
+        </Anchors>
+        <Layers level="BACKGROUND">
+            <Layer>
+                <Texture file="Interface/Common/portrait-ring-withbg"/>
+            </Layer>
+        </Layers>
+
+        <Layers level="BACKGROUND">
+            <Layer>
+                <FontString name="Text" parentKey="Text" inherits="GameFontNormalSmall" text="0">
+                    <Color r="0.812" g="0.373" b="0.878" />
+                    <Anchors>
+                        <Anchor point="CENTER">
+                            <Offset>
+                                <AbsDimension x="-1" y="0"/>
+                            </Offset>
+                        </Anchor>
+                    </Anchors>
+                </FontString>
+            </Layer>
+        </Layers>
+    </Frame>
+
+    <Frame name="ParagonTargetLevel" parent="TargetFrame" hidden="false" frameLevel="999">
+        <Size x="50" y="50"/>
+        <Anchors>
+            <Anchor point="CENTER" relativeTo="TargetFrame" relativePoint="CENTER">
+                <Offset>
+                    <AbsDimension x="41" y="-30"/>
+                </Offset>
+            </Anchor>
+        </Anchors>
+
+        <!-- Background ring texture -->
+        <Layers level="BACKGROUND">
+            <Layer>
+                <Texture file="Interface/Common/portrait-ring-withbg"/>
+            </Layer>
+        </Layers>
+
+        <!-- Level text overlay -->
+        <Layers level="OVERLAY">
+            <Layer>
+                <FontString name="$parentText" parentKey="Text" inherits="GameFontNormalSmall" text="0">
+                    <Color r="0.812" g="0.373" b="0.878"/>
+                    <Anchors>
+                        <Anchor point="CENTER">
+                            <Offset>
+                                <AbsDimension x="-1" y="0"/>
+                            </Offset>
+                        </Anchor>
+                    </Anchors>
+                </FontString>
+            </Layer>
+        </Layers>
+
+        <Scripts>
+            <OnLoad>
+                ParagonTargetLevel_OnLoad(self)
+            </OnLoad>
+            <OnUpdate>
+                ParagonTargetLevel_OnUpdate(self, elapsed)
+            </OnUpdate>
+            <OnHide>
+                ParagonTargetLevel_OnHide(self)
+            </OnHide>
+        </Scripts>
+    </Frame>
+
+    <!-- Stat Item Template (icon + value) -->
+    <Frame name="ParagonStatItemTemplate" virtual="true" enableMouse="true">
+        <Size x="55" y="55"/>
+        <Layers>
+            <!-- Background frame -->
+            <Layer level="BACKGROUND">
+                <Texture name="$parentBg" parentKey="Bg" file="Interface/Journeys/JourneysFrame2x">
+                    <TexCoords left="0.762207" right="0.814941" top="0.124512" bottom="0.177246"/>
+                </Texture>
+            </Layer>
+
+            <!-- Icon -->
+            <Layer level="ARTWORK">
+                <Texture name="$parentIcon" parentKey="Icon">
+                    <Size x="42" y="41"/>
+                    <Anchors>
+                        <Anchor point="CENTER" x="-1" y="1"/>
+                    </Anchors>
+                </Texture>
+            </Layer>
+
+            <!-- Border overlay -->
+            <Layer level="OVERLAY">
+                <Texture name="$parentBorder" parentKey="Border" file="Interface/Journeys/JourneysFrame2x">
+                    <TexCoords left="0.762207" right="0.814941" top="0.124512" bottom="0.177246"/>
+                </Texture>
+
+                <!-- Description text (hidden by default) -->
+                <FontString name="$parentDescription" parentKey="Description" inherits="GameFontNormalSmall">
+                    <Anchors>
+                        <Anchor point="TOP" y="-45"/>
+                    </Anchors>
+                    <Color r="1" g="1" b="1"/>
+                    <Shadow>
+                        <Color r="0" g="0" b="0"/>
+                        <Offset x="-1" y="-1"/>
+                    </Shadow>
+                </FontString>
+            </Layer>
+        </Layers>
+
+        <Frames>
+            <!-- Value badge -->
+            <Frame name="$parentValue" parentKey="Value" enableMouse="false">
+                <Size x="24" y="24"/>
+                <Anchors>
+                    <Anchor point="BOTTOM" y="-3"/>
+                </Anchors>
+                <Layers>
+                    <Layer level="OVERLAY">
+                        <Texture file="Interface/Journeys/JourneysFrame2x">
+                            <TexCoords left="0.395507813" right="0.426507813" top="0.137207031" bottom="0.169207031"/>
+                        </Texture>
+
+                        <FontString name="$parentText" parentKey="Text" inherits="AchievementDescriptionFont" justifyH="CENTER" justifyV="MIDDLE">
+                            <Anchors>
+                                <Anchor point="CENTER" x="0" y="0"/>
+                            </Anchors>
+                        </FontString>
+                    </Layer>
+                </Layers>
+            </Frame>
+        </Frames>
+
+        <Scripts>
+            <OnLoad>
+                UIParagonStatItem_OnLoad(self)
+            </OnLoad>
+            <OnUpdate>
+                UIParagonStatItem_AnimateDescription(self)
+                UIParagonStatItem_AnimateZoom(self)
+            </OnUpdate>
+            <OnEnter>
+                UIParagonStatItem_OnEnter(self)
+            </OnEnter>
+            <OnLeave>
+                UIParagonStatItem_OnLeave(self)
+            </OnLeave>
+        </Scripts>
+    </Frame>
+
+    <!-- Stat Line Template -->
+    <Frame name="ParagonStatLineTemplate" virtual="true">
+        <Size x="620" y="50"/>
+        <Layers>
+            <!-- Gradient background -->
+            <Layer>
+                <Texture name="$parentGradient">
+                    <Anchors>
+                        <Anchor point="LEFT" x="20" y="1"/>
+                    </Anchors>
+                    <Size x="600" y="40"/>
+                    <Gradient orientation="HORIZONTAL">
+                        <MinColor r="0" g="0" b="0" a="0.3"/>
+                        <MaxColor r="0" g="0" b="0" a="0.01"/>
+                    </Gradient>
+                    <Color r="0" g="0" b="0"/>
+                </Texture>
+            </Layer>
+        </Layers>
+
+        <Frames>
+            <!-- Title section -->
+            <Frame name="$parentTitle" parentKey="Title">
+                <Size x="185" y="50"/>
+                <Anchors>
+                    <Anchor point="LEFT"/>
+                </Anchors>
+
+                <Layers>
+                    <Layer>
+                        <Texture file="Interface/CovenantRenown/TheWarWithinMajorFactionsFlame">
+                            <TexCoords left="0.000976562" right="0.459961" top="0.8125" bottom="0.949219"/>
+                        </Texture>
+                    </Layer>
+
+                    <Layer>
+                        <FontString name="$parentText" parentKey="Text" inherits="AchievementPointsFont">
+                            <Color r="0.90" g="0.80" b="0.50"/>
+                        </FontString>
+                    </Layer>
+
+                    <Layer>
+                        <Texture file="Interface/Paragon/ParagonUI">
+                            <Size x="30" y="30"/>
+                            <Anchors>
+                                <Anchor point="RIGHT" x="30"/>
+                            </Anchors>
+                            <TexCoords left="0.491351563" right="0.508484375" top="0.752257813" bottom="0.784570313"/>
+                        </Texture>
+                    </Layer>
+                </Layers>
+            </Frame>
+        </Frames>
+    </Frame>
+
+    <!-- Reward Track Node Template (level label above + circular icon inside) -->
+    <!-- Slim copy of ParagonStatItemTemplate's ring/border/icon structure:
+         no OnUpdate zoom animation (it caches first anchors and would snap
+         repositioned nodes back) and no Value badge. Scripts are attached in
+         Lua by Paragon_RewardTrack.lua. -->
+    <Frame name="ParagonTrackNodeTemplate" virtual="true" enableMouse="true">
+        <Size x="55" y="55"/>
+        <Layers>
+            <!-- Background frame -->
+            <Layer level="BACKGROUND">
+                <Texture name="$parentBg" parentKey="Bg" file="Interface/Journeys/JourneysFrame2x">
+                    <TexCoords left="0.762207" right="0.814941" top="0.124512" bottom="0.177246"/>
+                </Texture>
+            </Layer>
+
+            <!-- Icon -->
+            <Layer level="ARTWORK">
+                <Texture name="$parentIcon" parentKey="Icon">
+                    <Size x="42" y="41"/>
+                    <Anchors>
+                        <Anchor point="CENTER" x="-1" y="1"/>
+                    </Anchors>
+                </Texture>
+            </Layer>
+
+            <!-- Border overlay + required-level label above the node -->
+            <Layer level="OVERLAY">
+                <Texture name="$parentBorder" parentKey="Border" file="Interface/Journeys/JourneysFrame2x">
+                    <TexCoords left="0.762207" right="0.814941" top="0.124512" bottom="0.177246"/>
+                </Texture>
+
+                <FontString name="$parentLevel" parentKey="Level" inherits="GameFontNormal" justifyH="CENTER">
+                    <Anchors>
+                        <Anchor point="BOTTOM" relativePoint="TOP" x="0" y="3"/>
+                    </Anchors>
+                    <Shadow>
+                        <Color r="0" g="0" b="0"/>
+                        <Offset x="1" y="-1"/>
+                    </Shadow>
+                </FontString>
+            </Layer>
+        </Layers>
+    </Frame>
+
+    <!-- Main Paragon Frame -->
+    <!-- !! frameStrata MUST BE HIGHER THAN THE ACTION BARS !!
+         UIParent is MEDIUM (UIParent.xml), MainMenuBar declares no strata so
+         it inherits MEDIUM, and ShapeshiftBarFrame is parented to MainMenuBar
+         (BonusActionBarFrame.xml:201) so it is MEDIUM too. This panel was also
+         MEDIUM, which left the paladin aura bar and the panel in the SAME
+         stratum with nothing but creation order deciding who drew on top, and
+         the aura bar won, cutting into the panel's bottom-left corner.
+
+         HIGH is Blizzard's own answer for a frame that must clear the bottom
+         bars: BonusActionBarFrame.xml:56 declares frameStrata="HIGH" for
+         exactly that reason. Everything that must stay ABOVE this panel still
+         does. StaticPopup is DIALOG (StaticPopup.xml:36), so the Codex respec
+         and permanent-node confirms are unaffected; GameTooltip is TOOLTIP
+         (GameTooltip.xml:9); the tutorial's own frames are FULLSCREEN_DIALOG.
+
+         (An XML comment may not contain a double hyphen, which is why this
+         block reads a little oddly. It is not a style choice.) -->
+    <Frame name="UIParagon" parent="UIParent" frameStrata="HIGH" hidden="true" inherits="PortraitFrame2X">
+        <Size x="750" y="710"/>
+        <Anchors>
+            <Anchor point="CENTER"/>
+        </Anchors>
+
+        <Layers>
+            <Layer level="BACKGROUND">
+                <Texture name="$parentBackground" file="Interface\Housing\housingbasicpanelstonebackground2x">
+                    <Anchors>
+                        <Anchor point="TOPLEFT"/>
+                        <Anchor point="BOTTOMRIGHT"/>
+                    </Anchors>
+                    <TexCoords left="0.000976562" right="0.916992" top="0.000976562" bottom="0.709961"/>
+                </Texture>
+            </Layer>
+
+            <Layer level="OVERLAY">
+                <Texture name="HighlightBottom" file="Interface\CovenantRenown\TheWarWithinMajorFactionsFlame" alpha="0.5">
+                    <Size x="750" y="150"/>
+                    <Anchors>
+                        <Anchor point="BOTTOM"/>
+                    </Anchors>
+                    <TexCoords left="0.000976562" right="0.674805" top="0.551758" bottom="0.258789"/>
+                </Texture>
+            </Layer>
+        </Layers>
+
+        <Frames>
+            <!-- Title -->
+            <Frame name="$parentTitle" parentKey="Title" toplevel="true" frameLevel="11">
+                <Size x="150" y="150"/>
+
+                <Anchors>
+                    <Anchor point="TOP"/>
+                </Anchors>
+
+                <Layers>
+                    <Layer level="BORDER">
+                        <FontString name="$parentText" parentKey="Text" inherits="GameFontNormal" text="Paragon Anniversary">
+                            <Anchors>
+                                <Anchor point="TOP" x="0" y="7"/>
+                            </Anchors>
+                        </FontString>
+                    </Layer>
+                </Layers>
+            </Frame>
+
+            <!-- Top Banner (Level + Experience Bar) -->
+            <Frame name="$parentTopBanner" parentKey="TopBanner">
+                <Size x="650" y="100"/>
+                <Anchors>
+                    <Anchor point="TOP" y="-15"/>
+                </Anchors>
+
+                <Frames>
+                    <!-- Level Display -->
+                    <Frame name="$parentLevel" parentKey="Level">
+                        <Size x="82" y="100"/>
+                        <Anchors>
+                            <Anchor point="CENTER" x="0" y="5"/>
+                        </Anchors>
+
+                        <Layers>
+                            <Layer level="OVERLAY">
+                                <Texture name="$parentLevelTexture" file="Interface\CovenantRenown\TheWarWithinMajorFactionsFlame">
+                                    <Size x="82" y="100"/>
+                                    <Anchors>
+                                        <Anchor point="CENTER"/>
+                                    </Anchors>
+                                    <TexCoords left="0.75293" right="0.930664" top="0.553711" bottom="0.768555"/>
+                                </Texture>
+
+                                <FontString name="$parentText" parentKey="Text" inherits="Game24Font" text="499">
+                                    <Anchors>
+                                        <Anchor point="CENTER" x="-1" y="5"/>
+                                    </Anchors>
+                                    <Shadow>
+                                        <Color r="0" g="0" b="0"/>
+                                        <Offset x="1" y="-1"/>
+                                    </Shadow>
+                                </FontString>
+                            </Layer>
+                        </Layers>
+                    </Frame>
+
+                    <!-- Experience Bar -->
+                    <Frame name="$parentExperienceBar" parentKey="ExperienceBar" enableMouse="true">
+                        <Size x="570" y="20"/>
+                        <Anchors>
+                            <Anchor point="CENTER" relativeTo="$parentLevel" relativePoint="BOTTOM" y="-15"/>
+                        </Anchors>
+
+                        <Frames>
+                            <StatusBar name="$parentStatusBar" parentKey="StatusBar" minValue="0" maxValue="100" defaultValue="0">
+                                <Size x="561" y="13"/>
+                                <Anchors>
+                                    <Anchor point="CENTER" x="-2" y="2"/>
+                                </Anchors>
+
+                                <Layers>
+                                    <Layer level="BACKGROUND">
+                                        <Texture name="$parentBackground" file="Interface/HUD/UIExperienceBar2x">
+                                            <Size x="565" y="13"/>
+                                            <Anchors>
+                                                <Anchor point="CENTER"/>
+                                            </Anchors>
+                                            <TexCoords left="0.000488281" right="0.550293" top="0.0820312" bottom="0.152344"/>
+                                        </Texture>
+                                    </Layer>
+
+                                    <Layer level="OVERLAY">
+                                        <Texture file="Interface/HUD/UIExperienceBar2x">
+                                            <Size x="570" y="18"/>
+                                            <Anchors>
+                                                <Anchor point="CENTER" x="2" y="-2"/>
+                                            </Anchors>
+                                            <TexCoords left="0.000488281" right="0.558105" top="0.785156" bottom="0.917969"/>
+                                        </Texture>
+                                    </Layer>
+                                </Layers>
+
+                                <BarTexture file="Interface\TargetingFrame\UI-StatusBar"/>
+                                <BarColor r="0.90" g="0.80" b="0.50"/>
+                            </StatusBar>
+
+                            <Frame name="$parentOverlayFrame" parentKey="OverlayFrame" frameLevel="999">
+                                <Anchors>
+                                    <Anchor point="TOPLEFT"/>
+                                    <Anchor point="BOTTOMRIGHT"/>
+                                </Anchors>
+
+                                <Layers>
+                                    <Layer level="OVERLAY">
+                                        <FontString name="$parentHoverText" parentKey="HoverText" inherits="GameFontNormal">
+                                            <Anchors>
+                                                <Anchor point="CENTER" y="5"/>
+                                            </Anchors>
+                                            <Color r="1" g="1" b="1"/>
+                                            <Shadow>
+                                                <Color r="0" g="0" b="0"/>
+                                                <Offset x="-1" y="-2"/>
+                                            </Shadow>
+                                        </FontString>
+
+                                        <FontString name="$parentText" parentKey="Text" inherits="GameFontNormal">
+                                            <Anchors>
+                                                <Anchor point="CENTER" y="3"/>
+                                            </Anchors>
+                                            <Color r="1" g="1" b="1"/>
+                                            <Shadow>
+                                                <Color r="0" g="0" b="0"/>
+                                                <Offset x="-1" y="-1"/>
+                                            </Shadow>
+                                        </FontString>
+                                    </Layer>
+                                </Layers>
+                            </Frame>
+                        </Frames>
+
+                        <Scripts>
+                            <OnLoad>
+                                UIParagonExperienceBar_OnLoad(self)
+                            </OnLoad>
+                            <OnShow>
+                                UIParagonExperienceBar_OnShow(self)
+                            </OnShow>
+                            <OnUpdate>
+                                UIParagonExperienceBar_AnimateTextSwap(self)
+                            </OnUpdate>
+                            <OnEnter>
+                                UIParagonExperienceBar_OnEnter(self)
+                            </OnEnter>
+                            <OnLeave>
+                                UIParagonExperienceBar_OnLeave(self)
+                            </OnLeave>
+                        </Scripts>
+                    </Frame>
+                </Frames>
+            </Frame>
+
+            <!-- Help Button (Tutorial) -->
+            <Button name="$parentHelpButton" parentKey="HelpButton" alpha="0.5">
+                <Size x="24" y="24"/>
+                <Anchors>
+                    <Anchor point="BOTTOM" relativeTo="$parentCloseButton" x="0" y="-20"/>
+                </Anchors>
+                <NormalTexture file="Interface\Common\help-i"/>
+                <HighlightTexture file="Interface\Common\help-i" alphaMode="ADD"/>
+                <Scripts>
+                    <OnClick>
+                        UIParagon_ShowTutorial()
+                    </OnClick>
+                </Scripts>
+            </Button>
+
+            <!-- MainMenuBar XP Checkbox -->
+            <CheckButton name="$parentShowMainMenuXP" parentKey="ShowMainMenuXP" inherits="UICheckButtonTemplate">
+                <Size x="18" y="18"/>
+                <Anchors>
+                    <Anchor point="BOTTOMLEFT" relativeTo="$parentTopBannerExperienceBar" x="0" y="-18"/>
+                </Anchors>
+                <Layers>
+                    <Layer level="ARTWORK">
+                        <FontString name="$parentText" parentKey="Text" inherits="GameFontNormalSmall">
+                            <Anchors>
+                                <Anchor point="LEFT" relativePoint="RIGHT">
+                                    <Offset>
+                                        <AbsDimension x="0" y="1"/>
+                                    </Offset>
+
+                                </Anchor>
+                            </Anchors>
+                            <Color r="0.90" g="0.80" b="0.50"/>
+                        </FontString>
+                    </Layer>
+                </Layers>
+                <Scripts>
+                    <OnLoad>
+                        UIParagon_ShowMainMenuXP_OnLoad(self)
+                    </OnLoad>
+                    <OnClick>
+                        UIParagon_ShowMainMenuXP_OnClick(self)
+                    </OnClick>
+                    <OnEnter>
+                        UIParagon_ShowMainMenuXP_OnEnter(self)
+                    </OnEnter>
+                    <OnLeave>
+                        GameTooltip:Hide()
+                    </OnLeave>
+                </Scripts>
+            </CheckButton>
+
+            <!-- Body (Statistics Section) -->
+            <!-- TOP-anchored below the Lua-built Reward Track section
+                 (Paragon_RewardTrack.lua) so the layout is a top-down chain:
+                 XP bar (-135) / checkbox (-153) / track header+divider
+                 (-175..-211) / track strip (-215..-297) / this Body at -335
+                 (Statistics divider -325..-341, header -305..-325). -->
+            <Frame name="$parentBody" parentKey="Body">
+                <Size x="650" y="250"/>
+                <Anchors>
+                    <Anchor point="TOP" x="0" y="-335"/>
+                </Anchors>
+
+                <Frames>
+                    <!-- Top Spacer with Title and Controls -->
+                    <Frame name="$parentTopSpacer" parentKey="TopSpacer" inherits="ParagonDivider">
+                        <Anchors>
+                            <Anchor point="TOP" y="10"/>
+                        </Anchors>
+
+                        <Layers>
+                            <Layer>
+                                <FontString name="$parentTitle" parentKey="Title" text="STATISTICS" justifyH="LEFT" inherits="GameFontNormalHuge">
+                                    <Anchors>
+                                        <Anchor point="TOPLEFT" x="20" y="20"/>
+                                    </Anchors>
+                                    <Color r="0.90" g="0.80" b="0.50" a="1"/>
+                                </FontString>
+
+                                <FontString name="$parentPoints" parentKey="Points" text="POINTS_TO_SPEND" justifyH="LEFT" inherits="GameFontNormal">
+                                    <Anchors>
+                                        <Anchor point="LEFT" relativeTo="$parentTitle" relativePoint="RIGHT" x="10" y="-2"/>
+                                    </Anchors>
+                                    <Color r="0.90" g="0.80" b="0.50" a="1"/>
+                                </FontString>
+                            </Layer>
+                        </Layers>
+                    </Frame>
+
+                    <!-- Statistics List Container -->
+                    <Frame name="$parentStatisticsList" parentKey="StatisticsList">
+                        <Size x="620" y="310"/>
+                        <Anchors>
+                            <Anchor point="TOP" relativeTo="$parentTopSpacer" relativePoint="BOTTOM" y="-20"/>
+                        </Anchors>
+
+                        <Frames>
+                            <!-- Dynamic stat lines will be created here by Lua -->
+                        </Frames>
+                    </Frame>
+                </Frames>
+            </Frame>
+
+            <!-- Accept Buttons -->
+            <Button name="$parentApplyButton" parentKey="ApplyButton" inherits="BigRedThreeSliceButtonTemplate">
+                <Size x="160" y="30"/>
+                <Anchors>
+                    <Anchor point="BOTTOM" x="0" y="10"/>
+                </Anchors>
+
+                <Layers>
+                    <Layer level="OVERLAY">
+                        <FontString name="$parentText" parentKey="Text" inherits="GameFontNormal">
+                            <Anchors>
+                                <Anchor point="CENTER" x="0" y="0"/>
+                            </Anchors>
+                        </FontString>
+                    </Layer>
+                </Layers>
+
+                <Scripts>
+                    <OnLoad>
+                        UIParagon_ApplyButton_OnLoad(self)
+                    </OnLoad>
+                    <OnClick>
+                        UIParagon_ApplyButton_OnClick(self)
+                    </OnClick>
+                </Scripts>
+            </Button>
+        </Frames>
+
+        <Scripts>
+            <OnLoad function="UIParagon_OnLoad"/>
+            <OnShow function="UIParagon_OnShow"/>
+            <OnHide function="UIParagon_OnHide"/>
+        </Scripts>
+    </Frame>
+
+</Ui>
