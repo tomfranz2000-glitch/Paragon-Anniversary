@@ -1,6 +1,7 @@
 > [!NOTE]
-> **Paragon Anniversary** Serverside is now feature-complete and stable!
-> Clientside UI is still in development with some features to complete.
+> **Paragon Anniversary** server and client features are complete. The project
+> remains in stabilization while the complete installation path is reproduced
+> on fresh hosts.
 
 ___
 
@@ -29,8 +30,8 @@ ___
 | Component | Status | Notes |
 |-----------|--------|-------|
 | **Serverside** | ⚙️ **Beta** | All core features complete, dual-mode system fully implemented, stabilization in progress |
-| **Clientside** | 🎨 **Beta** | Core UI functional, features and refinement in progress |
-| **Documentation** | ✅ **Complete** | Full code docs, architecture guides, and hook specifications |
+| **Clientside** | ✅ **Feature complete** | Full 27-file addon, 14 UI-art assets, and generated DBC archives |
+| **Documentation** | 🛠️ **Stabilizing** | Branch-specific install and implementation guides |
 
 ---
 
@@ -132,12 +133,15 @@ Configure `LEVEL_LINKED_TO_ACCOUNT` in `paragon_config`:
 
 ## 🚀 Quick Installation
 
-### Quick Start (4 Steps)
+### Required order
 
-1. 📁 Copy `serverside/paragon` to the directory configured as `ALE.ScriptPath`
-2. 🧩 Copy `modules/mod-ale/src/LuaEngine/extensions` from your AzerothCore checkout into that same directory (Paragon requires `ObjectVariables.ext`)
-3. 🔄 Restart your AzerothCore server (tables auto-create)
-4. ⚙️ Configure `paragon_config` table with your desired settings
+1. 🧩 Install the pinned modules and apply every applicable patch.
+2. 🗄️ Import `sql/01_create_database.sql` through `sql/05_apply_anniversary_config.sql`.
+3. 📁 Copy `serverside/paragon` and the mod-ale extensions into `ALE.ScriptPath`.
+4. ⚙️ Run `gen_class_talents.py --emit`, `gen_class_trainers.py --emit`, then `paragon_client_patch.py --apply`.
+5. 🎁 Populate collection and quest XP with the two dedicated tools.
+6. 🎮 Install the addon, build `patch-W.MPQ`, and verify the generated `patch-X` archives.
+7. 🔄 Restart the worldserver and fully restart the client.
 
 > [!IMPORTANT]
 > Clone `https://github.com/azerothcore/mod-eluna.git` with the explicit target
@@ -147,7 +151,7 @@ Configure `LEVEL_LINKED_TO_ACCOUNT` in `paragon_config`:
 >
 > Installing mod-ale is not enough in Docker: its runtime image omits the ALE
 > extension files. Copy them into the bind-mounted script path explicitly; see
-> the [detailed installation guide](doc/INSTALL.md#step-1-copy-the-paragon-scripts-and-ale-extensions).
+> the [detailed installation guide](doc/INSTALL.md).
 
 ### 📖 Detailed Installation Guide
 

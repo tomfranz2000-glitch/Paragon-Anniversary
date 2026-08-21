@@ -21,7 +21,8 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CLIENT_DATA = os.path.join(HERE, "..", "Client", "Data")
+CLIENT_DATA = os.path.abspath(os.environ.get(
+    "PARAGON_CLIENT_DATA", os.path.join(HERE, "..", "Client", "Data")))
 CACHE = os.path.join(HERE, "cache")
 DB_CONTAINER = "ac-database"
 DB_PASS = os.environ.get("ACORE_DB_PASS", "")

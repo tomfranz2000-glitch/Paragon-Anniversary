@@ -1,72 +1,181 @@
-# 📦 Paragon System Installation Guide
+# Paragon Anniversary — Complete Installation Guide
 
-Complete installation instructions for the **Paragon System** on AzerothCore with ALE.
+This guide applies to the `wintermute` branch of this repository. It replaces
+the generic upstream instructions: this fork requires core/module patches,
+database migrations, generated server content, three client patch files, and
+the complete addon.
 
----
+Do not start the worldserver until the server SQL, generated content, Lua
+scripts, and ALE extensions are all installed. The database container may run
+while the generators execute.
 
-## 📋 Prerequisites
+## Installation order
 
-Before installing the Paragon System, ensure you have:
+1. Clone the pinned playerbot core and required modules.
+2. Apply the patches under `patches/` to their correct repositories.
+3. Build the core and complete the normal AzerothCore database import.
+4. Apply `sql/01_create_database.sql` through
+   `sql/05_apply_anniversary_config.sql` in order.
+5. Install `serverside/paragon` and the ALE extensions under the configured
+   `ALE.ScriptPath`.
+6. Run the two class-data generators, then the unified client/content
+   generator.
+7. Populate collection and quest XP.
+8. Install the 27-file addon and build the 14-file UI-art archive.
+9. Verify the installation, then start the worldserver and fully restart the
+   client.
 
-- ✅ **AzerothCore** 3.3.5a server running
-- ✅ **ALE (Azeroth Lua Engine)** installed and configured
-- ✅ **Database access** (MySQL/MariaDB) with appropriate credentials
-- ✅ **World of Warcraft 3.3.5a client** for testing
-- ✅ Git or file explorer for copying files
+## 1. Prerequisites and repository layout
 
-### Required ALE Directory Name
+Required software and data:
 
-Clone the upstream `mod-eluna` repository into the core as
-**`modules/mod-ale`**. The target directory name is required by AzerothCore's
-module CMake logic:
+- Python 3 and `mpyq`: `python -m pip install mpyq`
+- Git, CMake/build tools, and MySQL client access
+- Docker when using the supplied generator commands; they currently connect
+  to a database container named `ac-database`
+- A clean enUS World of Warcraft 3.3.5a client
+- The playerbot AzerothCore fork and commits recorded in
+  [`patches/PINS.md`](../patches/PINS.md)
+- `mod-ale`, `mod-transmog`, and their own prerequisites
+- `mod-collections` when collection XP should include account-wide mounts and
+  companions; without it those awards remain zero
+
+Set the database password and the real client `Data` directory before running
+any tool. `PARAGON_CLIENT_DATA` points to `Data`, not the WoW root.
+
+PowerShell:
+
+```powershell
+$env:ACORE_DB_PASS = "your-database-root-password"
+$env:PARAGON_CLIENT_DATA = "C:\Games\World of Warcraft 3.3.5a\Data"
+```
+
+Bash:
+
+```bash
+export ACORE_DB_PASS="your-database-root-password"
+export PARAGON_CLIENT_DATA="/games/wow-3.3.5a/Data"
+```
+
+The tools retain `Paragon-Anniversary/Client/Data` as a fallback for the
+original workspace layout, but a fresh installation should set the environment
+variable explicitly.
+
+## 2. Clone modules and apply patches
+
+The core must be the pinned `mod-playerbots/azerothcore-wotlk` Playerbot fork,
+not stock AzerothCore. Apply patches against the base commits listed in
+`patches/PINS.md`; a failed hunk means the checkout has drifted and should not
+be forced.
+
+### ALE directory name
+
+Clone the upstream repository with the explicit target **`modules/mod-ale`**:
 
 ```bash
 cd /path/to/azerothcore
 git clone https://github.com/azerothcore/mod-eluna.git modules/mod-ale
 ```
 
-Do not omit the final `modules/mod-ale` argument. Git would otherwise create a
-directory named `mod-eluna`; AzerothCore discovers its sources but skips the
-ALE-specific Lua include paths and `lualib` linkage, eventually failing with
-`fatal error: 'lua.h' file not found`.
+The default target `modules/mod-eluna` is wrong for this core. Module discovery
+finds it, but `modules/CMakeLists.txt` skips `ConfigureALEModule`, so the build
+fails later with `fatal error: 'lua.h' file not found`.
 
-Check out the base commit recorded in [`patches/PINS.md`](../patches/PINS.md)
-and apply `patches/05-mod-ale.patch` before building the core.
+### Patch targets
 
-### Required Dependencies
+Apply each patch from the repository named in the second column:
 
-The system requires these libraries to be present in your ALE scripts directory:
-- **classic.lua** - Object-Oriented Programming library
-- **CSMH** - Client-Server Message Handler framework
-- **Mediator** - Event-driven architecture pattern
+| Patch | Apply from | Required |
+|---|---|---|
+| `patches/01-core-paragon.patch` | AzerothCore root | Yes |
+| `patches/04-core-docker-build-jobs.patch` | AzerothCore root | Docker builds; allows a safe `CBUILD_JOBS` cap |
+| `patches/05-mod-ale.patch` | `modules/mod-ale` | Yes |
+| `patches/06-AccountBound.patch` | `modules/AccountBound` | When using the pinned AccountBound title-sync module |
 
-All dependencies are included in the project.
-
----
-
-## 🚀 Server-Side Installation (Lua Scripts)
-
-### Step 1: Copy the Paragon Scripts and ALE Extensions
-
-Copy the repository's `serverside/paragon` folder to the directory configured
-as `ALE.ScriptPath`:
+Example:
 
 ```bash
-cp -r /path/to/Paragon-Anniversary/serverside/paragon /path/to/lua_scripts/
+cd /path/to/azerothcore
+git apply /path/to/Paragon-Anniversary/patches/01-core-paragon.patch
+git apply /path/to/Paragon-Anniversary/patches/04-core-docker-build-jobs.patch
+
+cd modules/mod-ale
+git apply /path/to/Paragon-Anniversary/patches/05-mod-ale.patch
 ```
 
-Paragon also requires ALE's bundled extensions. In particular,
-`ObjectVariables.ext` provides the `player:SetData(...)` and
-`player:GetData(...)` methods used by the Paragon modules. Copy the complete
-extension directory into that **same** script path:
+Build the core only after all applicable patches and modules are present. For
+Docker, pass a conservative build width when needed, for example
+`CBUILD_JOBS=4` through the compose build arguments.
+
+## 3. Initialize AzerothCore and Paragon databases
+
+Complete AzerothCore's normal auth/characters/world/playerbots import first.
+The Paragon generators query populated world tables and cannot run against an
+empty `acore_world` database.
+
+Run these five files in exactly this order:
+
+```sql
+SOURCE sql/01_create_database.sql;
+SOURCE sql/02_create_tables.sql;
+SOURCE sql/03_create_triggers.sql;
+SOURCE sql/04_insert_default_config.sql;
+SOURCE sql/05_apply_anniversary_config.sql;
+```
+
+There is no required `sql/06` file. `02_create_tables.sql` is the single
+authoritative schema and creates all 20 base and Anniversary tables, including
+the five collection/codex support tables that older installs lacked.
+
+Do not load `sql/11-13-2026_Example_Data.sql` on an existing realm. It is a
+destructive example/reference file and can replace configuration data.
+
+Verify the preset before continuing:
+
+```sql
+SELECT COUNT(*) FROM acore_ale.paragon_config;
+SELECT field, value FROM acore_ale.paragon_config
+WHERE field IN ('BASE_MAX_EXPERIENCE', 'MINIMUM_LEVEL_FOR_PARAGON_XP');
+```
+
+The Anniversary preset contains at least 22 settings, starts at 30,000 XP,
+and permits Paragon XP only from character level 80.
+
+## 4. Install server Lua and ALE extensions
+
+Set `ALE.ScriptPath` to one directory containing both `paragon/` and
+`extensions/`.
+
+Native layout:
+
+```ini
+ALE.Enabled = true
+ALE.ScriptPath = "lua_scripts"
+```
+
+Repository Docker layout:
+
+```ini
+ALE.Enabled = true
+ALE.ScriptPath = "/azerothcore/env/dist/etc/lua_scripts"
+```
+
+Copy the complete server package:
+
+```bash
+cp -r /path/to/Paragon-Anniversary/serverside/paragon \
+      /path/to/lua_scripts/
+```
+
+Then copy ALE's extensions into that same path. `ObjectVariables.ext` supplies
+the `SetData` and `GetData` methods used by Paragon.
 
 ```bash
 cp -r /path/to/azerothcore/modules/mod-ale/src/LuaEngine/extensions \
       /path/to/lua_scripts/
 ```
 
-For the repository's Docker layout and the supplied `mod_ale.conf` patch, run
-this from the AzerothCore checkout:
+For the supplied Docker layout, use the idempotent form:
 
 ```bash
 mkdir -p env/dist/etc/lua_scripts/extensions
@@ -74,547 +183,252 @@ cp -r modules/mod-ale/src/LuaEngine/extensions/. \
       env/dist/etc/lua_scripts/extensions/
 ```
 
-This copy is required even after a successful Docker rebuild. CMake installs
-the extensions under `bin/lua_scripts`, but the production worldserver image
-copies only the executable and ALE is configured to read the bind-mounted
-`env/dist/etc/lua_scripts` directory.
+The final layout must contain:
 
-**Directory structure after copy:**
-```
-your_ale_scripts_directory/
+```text
+lua_scripts/
 ├── extensions/
-│   ├── ObjectVariables.ext
-│   ├── _Misc.ext
-│   └── StackTracePlus/
+│   └── ObjectVariables.ext
 └── paragon/
-    ├── lib/
-    │   ├── classic/
-    │   ├── Mediator/
-    │   └── CSMH/
     ├── modules/
-    │   └── paragon_anniversary.lua
-    ├── sql/
-    │   ├── 01_create_database.sql
-    │   ├── 02_create_tables.sql
-    │   ├── 03_create_triggers.sql
-    │   ├── 04_insert_default_config.sql
-    │   ├── 05_apply_anniversary_config.sql
-    │   └── README.md
+    ├── lib/
     ├── paragon_class.lua
     ├── paragon_config.lua
     ├── paragon_constant.lua
     ├── paragon_hook.lua
-    ├── paragon_repository.lua
-    ├── HOOKS.md
-    └── INSTALLATION.md
+    └── paragon_repository.lua
 ```
 
-### Step 2: Execute SQL Migrations
+Docker's production worldserver image copies the executable but not CMake's
+`bin/lua_scripts/extensions` output. The explicit copy into the bind-mounted
+script path is therefore required even after a successful rebuild.
 
-**IMPORTANT:** You **MUST** execute all SQL migration files manually **BEFORE** starting your server.
+## 5. Generate and apply custom content
 
-Navigate to the `sql/` directory and execute all files in order using your MySQL client:
-
-```sql
--- Execute in this exact order:
-SOURCE 01_create_database.sql;
-SOURCE 02_create_tables.sql;
-SOURCE 03_create_triggers.sql;
-SOURCE 04_insert_default_config.sql;
-SOURCE 05_apply_anniversary_config.sql;
-```
-
-**Alternative methods:**
-- Use MySQL Workbench, HeidiSQL, DBeaver, or any MySQL client
-- Execute all files at once by running them in sequence
-- Use command line: `mysql -u username -p < filename.sql`
-
-### Step 3: Verify Database Installation
-
-Check the database to confirm all tables were created:
-
-```sql
--- Connect to the database
-USE acore_ale;  -- or your configured database name
-
--- Verify all paragon tables exist
-SHOW TABLES LIKE 'paragon%';
-SHOW TABLES LIKE '%paragon%';
-
--- Expected tables (20 total):
--- paragon_config
--- paragon_config_category
--- paragon_config_statistic
--- paragon_config_experience_achievement
--- paragon_config_experience_creature
--- paragon_config_experience_quest
--- paragon_config_experience_skill
--- character_paragon
--- character_paragon_stats
--- account_paragon
--- paragon_collectible_spell_xp
--- paragon_collectible_item_xp
--- paragon_rewarded_collectible_spell
--- paragon_rewarded_appearance
--- paragon_banked_experience
--- paragon_codex_alloc
--- paragon_custom_glyph
--- paragon_racial_pick
--- paragon_rare_kills
--- paragon_solo_clears
-
--- Verify default configuration was inserted
-SELECT COUNT(*) FROM paragon_config;
--- Should return at least 17 rows
-```
-
-### Step 4: Verify ALE Configuration
-
-Ensure `ALE.ScriptPath` in `mod-ale.conf` names the directory that contains
-both `paragon/` and `extensions/`.
-
-For a native install launched from the server's `bin` directory:
-
-```ini
-# Lua Engine settings
-ALE.Enabled = 1
-ALE.ScriptPath = "lua_scripts"
-```
-
-For the repository's Docker layout:
-
-```ini
-ALE.Enabled = 1
-ALE.ScriptPath = "/azerothcore/env/dist/etc/lua_scripts"
-```
-
-Before starting the server, verify this file exists relative to that exact
-path:
-
-```text
-extensions/ObjectVariables.ext
-```
-
-Changing only `ALE.ScriptPath` is not sufficient: ALE cannot add `SetData` and
-`GetData` to its object metatables unless the extension file is present there.
-
-### Step 5: Start the Server
-
-Start or restart your AzerothCore server. The system will:
-
-1. ✅ Verify the database schema exists
-2. ✅ Load the Paragon scripts
-3. ✅ Load configuration from the database
-4. ✅ Initialize all modules
+Keep `ac-database` running and the worldserver stopped. From the
+Paragon-Anniversary repository root, run:
 
 ```bash
-# Start AzerothCore
-./worldserver
+python tools/gen_class_talents.py --emit
+python tools/gen_class_trainers.py --emit
+python tools/paragon_client_patch.py --apply
 ```
 
-**Expected console output:**
-```
-[Paragon System] Database schema verified successfully.
-[Paragon] Paragon Anniversary Experience module loaded
-[Paragon] Paragon Anniversary Level Animation module loaded
-```
+The first two commands create the intermediate
+`tools/generated/class_talent_ranks.py` and
+`tools/generated/class_trainer_ranks.py` modules. The unified generator refuses
+to run without them.
 
-Monitor the server console for any error messages related to Paragon initialization.
+`paragon_client_patch.py --apply` then:
 
----
+- generates `tools/generated/paragon_content.sql`;
+- applies that SQL to `acore_world`;
+- generates all custom spells, talents, trainer ranks, achievements, criteria,
+  and both custom title override rows;
+- builds `patch-X.MPQ` in `PARAGON_CLIENT_DATA`;
+- builds `patch-enUS-X.MPQ` in `PARAGON_CLIENT_DATA/enUS`;
+- verifies both archives before replacing an existing Paragon-owned output.
 
-## ⚙️ Initial Configuration
+### The single content SQL
 
-### Access the Database Configuration
+`sql/content/01_paragon_content.sql` is the checked-in snapshot of the unified
+generator output. A normal install using `--apply` must **not** apply it as a
+second required step; the generator has already applied the equivalent SQL.
 
-The Paragon System configuration is stored in the `paragon_config` table. You can modify settings while the server is running:
+For an intentionally SQL-only deployment, omit `--apply`, build the client
+archives, and import the snapshot into `acore_world` yourself:
 
-```sql
--- View all current configuration
-SELECT * FROM paragon_config;
-
--- Update a specific setting
-UPDATE paragon_config SET value = '30000' WHERE field = 'BASE_MAX_EXPERIENCE';
-```
-
-### Essential Configuration Options
-
-#### Enable/Disable the System
-
-```sql
-UPDATE paragon_config
-SET value = '1'
-WHERE field = 'ENABLE_PARAGON_SYSTEM';
-
--- 1 = Enabled (default)
--- 0 = Disabled (system won't function)
+```bash
+mysql -u root -p acore_world < sql/content/01_paragon_content.sql
 ```
 
-#### Choose Progression Mode
+There are no separate `02`, `03`, or `04` content migrations. Their former
+extended-talent, Consecration, reward-aura, and title rows are consolidated in
+the unified generator and `01_paragon_content.sql`.
 
-```sql
-UPDATE paragon_config
-SET value = '1'
-WHERE field = 'LEVEL_LINKED_TO_ACCOUNT';
+Do not use historical single-feature generators or SQL copies: a partial DBC
+build can silently remove the other custom records from the client archives.
 
--- 0 = Character-linked - Each character has independent progression
--- 1 = Account-linked (Anniversary default) - All characters share level/XP
---     but have separate stat investments
+## 6. Populate collection and quest XP
+
+After the base schema exists and the AzerothCore world import is complete, run:
+
+```bash
+python tools/paragon_collectible_xp.py --seed
+python tools/populate_quest_paragon_xp.py
 ```
 
-#### Set Paragon Level Cap
+Use `--seed` on the first install. It records already-owned collectibles in the
+one-time reward mirrors so existing collections do not grant a retroactive XP
+windfall. The tool also repopulates the collectible reward values and writes a
+review CSV under `tools/generated/`.
 
-```sql
-UPDATE paragon_config
-SET value = '10000'
-WHERE field = 'PARAGON_LEVEL_CAP';
+The quest generator replaces `paragon_config_experience_quest` with the full
+level-appropriate QuestXP values. Both tools are rerunnable, but their values
+are loaded by the server at startup.
 
--- 0 = Unlimited (default)
--- Any positive number = Maximum achievable paragon level
+The remaining `gen_*` scripts are content-maintenance tools. Their generated
+Lua/addon outputs are already committed and are not part of a fresh install.
+
+## 7. Install the client addon and art
+
+The client UI is complete. It consists of a normal 27-file addon plus 14 BLP
+art files. The addon must not be packed into an MPQ.
+
+Copy the addon directory to the WoW client:
+
+```bash
+cp -r clientside/Interface/AddOns/Paragon \
+      /path/to/WoW/Interface/AddOns/
 ```
 
-### Configure Experience Rewards
+Build the art archive from the tracked BLP sources:
 
-Set how much paragon experience players earn from different activities:
-
-```sql
--- Creature kills (default: 50)
-UPDATE paragon_config SET value = '50' WHERE field = 'UNIVERSAL_CREATURE_EXPERIENCE';
-
--- Achievements (default: 100)
-UPDATE paragon_config SET value = '100' WHERE field = 'UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE';
-
--- Skill increases (default: 25)
-UPDATE paragon_config SET value = '25' WHERE field = 'UNIVERSAL_SKILL_EXPERIENCE';
-
--- Quest completion fallback (default: 1; normal rewards use quest data)
-UPDATE paragon_config SET value = '1' WHERE field = 'UNIVERSAL_QUEST_EXPERIENCE';
+```bash
+python tools/build_ui_art.py
 ```
 
-### Configure Progression Speed
+`build_ui_art.py` stages only `clientside/Interface` outside `AddOns`, invokes
+`tools/build_mpq.py`, verifies all 14 source files byte-for-byte, adds the
+Paragon ownership marker, and writes `patch-W.MPQ` to
+`PARAGON_CLIENT_DATA`.
 
-```sql
--- Experience required for the first Paragon level
-UPDATE paragon_config SET value = '30000' WHERE field = 'BASE_MAX_EXPERIENCE';
+The old `tools/mpq-backup/patch-4.MPQ` is an unmarked historical recovery copy.
+Do not install, rename, or overwrite a client archive with it.
 
--- Points awarded per level
-UPDATE paragon_config SET value = '1' WHERE field = 'POINTS_PER_LEVEL';
+After generation and addon installation, these exact files must exist:
 
--- Starting level for new characters
-UPDATE paragon_config SET value = '1' WHERE field = 'PARAGON_STARTING_LEVEL';
-
--- No Paragon XP is granted merely by creating/loading a progression record
-UPDATE paragon_config SET value = '0' WHERE field = 'PARAGON_STARTING_EXPERIENCE';
-
--- Characters below this level cannot receive Paragon XP
-UPDATE paragon_config SET value = '80' WHERE field = 'MINIMUM_LEVEL_FOR_PARAGON_XP';
+```text
+WoW/
+├── Data/
+│   ├── patch-W.MPQ
+│   ├── patch-X.MPQ
+│   └── enUS/
+│       └── patch-enUS-X.MPQ
+└── Interface/
+    └── AddOns/
+        └── Paragon/
+            └── Paragon.toc
 ```
 
-### Configure Experience Multipliers
+Run the collision checker before launching the client:
 
-```sql
--- Low-level Paragon multiplier
-UPDATE paragon_config SET value = '1' WHERE field = 'EXPERIENCE_MULTIPLIER_LOW_LEVEL';
-
--- Paragon level threshold for low-level bonus
-UPDATE paragon_config SET value = '5' WHERE field = 'LOW_LEVEL_THRESHOLD';
-
--- High-level Paragon multiplier
-UPDATE paragon_config SET value = '1' WHERE field = 'EXPERIENCE_MULTIPLIER_HIGH_LEVEL';
-
--- Paragon level threshold for high-level penalty
-UPDATE paragon_config SET value = '100' WHERE field = 'HIGH_LEVEL_THRESHOLD';
+```bash
+python tools/check_patch_collisions.py
 ```
 
----
+If `W` or `X` is already occupied by an unrelated archive, choose free
+single-character names. Use matching options for the DBC generator and
+collision checker; the UI builder has its own output option:
 
-## 🎮 Client-Side Installation (UI/Addon)
-
-### Status
-The client-side UI is currently **in development**. Basic functionality is working, but some advanced features are still being completed.
-
-### Installation (When Available)
-
-#### As a Patch/FrameXML
-
-The generator defaults to `patch-X.MPQ` in the client's `Data/` directory and
-`patch-enUS-X.MPQ` in `Data/enUS/`. It will only replace an existing archive
-that carries its Paragon ownership marker; an unrelated or older unmarked
-archive at either path makes the build stop before any generated files change.
-
-If either default name is already occupied, select a free one-character suffix:
-
-```powershell
-python tools/paragon_client_patch.py --general-name patch-Y.MPQ `
+```bash
+python tools/paragon_client_patch.py --apply \
+    --general-name patch-Y.MPQ --locale-name patch-enUS-Y.MPQ
+python tools/build_ui_art.py --output-name patch-V.MPQ
+python tools/check_patch_collisions.py \
+    --ui-name patch-V.MPQ --general-name patch-Y.MPQ \
     --locale-name patch-enUS-Y.MPQ
 ```
 
-Use the same options with `tools/check_patch_collisions.py`, then fully restart
-the client and test in game. Move or remove obsolete unmarked Paragon archives
-manually only after confirming their contents; the tools never delete them.
+The tools refuse to overwrite an existing archive unless its exact Paragon
+ownership marker is present.
 
----
+## 8. Start and verify
 
-## 🧪 Testing the Installation
+Start or restart the worldserver only after all SQL and generators complete.
+The custom DBC override tables load at process startup, so a Lua reload is not
+sufficient. Fully exit and restart `Wow.exe` as well; patch MPQs load once per
+process.
 
-### Verify Server-Side is Working
+### Server verification
 
-1. **Create a test character** on your server
-2. **Gain experience** by:
-   - Killing creatures
-   - Completing quests
-   - Completing achievements
-   - Increasing skills
-3. **Check database** for paragon progression:
+Run these checks:
 
 ```sql
--- Check character paragon data
-SELECT * FROM character_paragon WHERE guid = YOUR_CHARACTER_GUID;
-
--- Check invested statistics
-SELECT * FROM character_paragon_stats WHERE guid = YOUR_CHARACTER_GUID;
+SELECT COUNT(*) AS settings FROM acore_ale.paragon_config;
+SELECT COUNT(*) AS custom_spells
+FROM acore_world.spell_dbc
+WHERE ID >= 1900000 AND ID < 2000000;
+SELECT ID, Name_Lang_enUS, Mask_ID
+FROM acore_world.chartitles_dbc
+WHERE ID IN (200, 201)
+ORDER BY ID;
+SELECT COUNT(*) FROM acore_ale.paragon_collectible_spell_xp;
+SELECT COUNT(*) FROM acore_ale.paragon_config_experience_quest;
 ```
 
-### Expected Server Output
+On the current branch, the custom-spell coverage audit reports 743
+client-generated records plus 21 deliberately server-only records. Both title
+rows must be present on a fresh host.
 
-When a player gains paragon experience, you should see:
-- Level increases reflected in the database
-- Experience accumulation toward the next level
-- Points awarded per level
-- Stat modifiers applied
+At login, the console must not report `SetData`/`GetData` errors. A level-80
+character should earn Paragon XP from configured sources; a lower-level
+character should not. The first Paragon level requires 30,000 XP with the
+Anniversary preset.
 
-### Verify Client-Side is Working
+### Client verification
 
-Once the client addon is complete:
-1. Log in to the game
-2. Verify you can see:
-   - Current paragon level
-   - Experience progress bar
-   - Available points
-   - Stat allocation interface
+At the character-selection addon list, confirm `Paragon` is enabled. In game,
+verify the Paragon micro button, XP bar, codex, reward track, and allocation UI
+open without Lua errors. Custom spell/talent names and custom achievements must
+be visible; missing names indicate that the generated DBC archive did not win
+the patch load order.
 
----
+## Troubleshooting
 
-## 🔧 Troubleshooting
+### `fatal error: 'lua.h' file not found`
 
-### Build error: `fatal error: 'lua.h' file not found`
+ALE was cloned as `modules/mod-eluna`. Rename or clone it as
+`modules/mod-ale`, remove the failed CMake build directory/cache, and configure
+again.
 
-If the error originates below `modules/mod-eluna/src/LuaEngine`, the ALE
-repository was cloned under its default directory name. Rename or clone it as
-`modules/mod-ale`, clear the failed CMake build directory/cache, and configure
-the core again.
+### `SetData` or `GetData` is nil
 
-AzerothCore discovers modules without caring about their directory names, but
-its ALE setup currently matches `mod-ale`. That setup supplies the Lua include
-directories, links `lualib`, enables the AzerothCore compile definitions, and
-installs ALE's extensions. A stale CMake cache can preserve the broken module
-graph after the directory is corrected, so a clean reconfigure is required.
+`extensions/ObjectVariables.ext` is absent from the configured
+`ALE.ScriptPath`. Copy the complete mod-ale extension directory there and
+restart the worldserver.
 
-### Error: `SetData` or `GetData` is nil on player login
+### `missing generated class data`
 
-**Example:**
+Run these commands before the unified generator:
 
-```text
-paragon_transmog_bonus.lua:304: attempt to call method 'SetData' (a nil value)
-paragon_collection_rewards.lua:197: attempt to call method 'SetData' (a nil value)
+```bash
+python tools/gen_class_talents.py --emit
+python tools/gen_class_trainers.py --emit
 ```
 
-**Cause:** ALE found the Paragon scripts but did not find its
-`ObjectVariables.ext` extension under the configured `ALE.ScriptPath`.
+### `set ACORE_DB_PASS` or MySQL connection failure
 
-**Fix:** Copy the complete
-`modules/mod-ale/src/LuaEngine/extensions` directory into `ALE.ScriptPath`, as
-shown in server-side installation Step 1, then restart the worldserver. A Lua
-reload is not a reliable substitute because the extension modifies ALE object
-metatables during engine initialization.
+Set `ACORE_DB_PASS`, confirm the container is named `ac-database`, and confirm
+the AzerothCore world import completed. The generators use `docker exec` and
+the populated world schema.
 
-### Error: "Database schema not initialized!" or "Database not found!"
+### A DBC cannot be found
 
-**Problem**: Server shows error message about missing database or tables
+Set `PARAGON_CLIENT_DATA` to the client's actual `Data` directory and confirm
+the enUS locale archives exist below `Data/enUS`. Delete only the regenerable
+`tools/cache` directory if it contains extracts from a different client.
 
-**Error message example:**
-```
-=================================================================
-[PARAGON SYSTEM ERROR] Database not found!
-=================================================================
+### Archive overwrite refused
 
-The database 'acore_ale' does not exist.
+The target name belongs to an unmarked or third-party MPQ. Do not delete it
+blindly. Inspect/move it or select a free one-character patch suffix, then run
+the generator and collision checker with matching names.
 
-SOLUTION:
-  1. Navigate to: lua_scripts/game/systems/paragon/sql/
-  2. Execute 01_create_database.sql
-  3. Execute all other numbered SQL files (02 through 05)
-  4. Reload Eluna scripts: .reload eluna
-=================================================================
-```
+### Server boot-loops on missing Paragon tables
 
-**Solutions**:
-1. You haven't executed the SQL migration files yet (see Step 2 above)
-2. Check which tables are missing:
-```sql
-SHOW TABLES LIKE 'paragon%';
-```
-3. Execute the missing SQL files from the `sql/` directory
-4. Reload Eluna scripts: `.reload eluna` or restart the server
+Reapply `sql/01_create_database.sql` through
+`sql/05_apply_anniversary_config.sql` in order. Do not rely on Lua to create
+the schema.
 
-### Error: "Table already exists"
+## Updating an existing installation
 
-**Problem**: SQL execution shows "Table already exists" warnings
+Back up the three AzerothCore databases plus `acore_ale`, update the repository
+and pinned patches together, rerun the base SQL (it is idempotent except for
+the documented Anniversary preset), regenerate the two class intermediate
+files, rerun `paragon_client_patch.py --apply`, repopulate collection/quest XP,
+rebuild `patch-W.MPQ`, and recopy the addon. Finish with a worldserver and full
+client restart.
 
-**Solution**: This is normal and safe to ignore. The SQL files use `CREATE TABLE IF NOT EXISTS`, so they can be run multiple times without issues.
-
-### Custom Database Name
-
-**Problem**: You're using a different database name than `acore_ale`
-
-**Solutions**:
-1. Edit `paragon_constant.lua` and change the `DB_NAME` constant to your database name
-2. Replace all occurrences of `acore_ale` in the SQL files with your database name
-3. Re-execute the SQL files
-
-### No Categories or Statistics Available
-
-**Problem**: The system is installed but no categories or statistics appear in the UI or database
-
-**Cause**: The base migration files (01-06) only create the table structure and default configuration. They **do not** include any example categories or statistics.
-
-**Solutions**:
-
-1. **Use the example data file** - A complete example configuration is provided:
-   ```sql
-   -- Located at: sql/11-13-2026_Example_Data.sql
-   -- This file includes:
-   -- - 3 example categories (Combat, Stats, Special)
-   -- - 25+ configured statistics
-   -- - All properly configured with types, factors, and limits
-
-   SOURCE sql/11-13-2026_Example_Data.sql;
-   ```
-
-2. **Manually create categories and statistics**:
-   ```sql
-   -- Create a category
-   INSERT INTO paragon_config_category (id, name) VALUES (1, 'Combat');
-
-   -- Add a statistic to the category
-   INSERT INTO paragon_config_statistic
-   (id, category, type, type_value, icon, factor, limit, application)
-   VALUES
-   (1, 1, 'COMBAT_RATING', 8, 'Interface\\Icons\\Inv_sword_27', 10, 255, 0);
-   -- Where type_value = 8 is CRIT_MELEE (see paragon_constant.lua for all values)
-   ```
-
-3. **Import from another server** - Export your existing configuration using:
-   ```sql
-   -- Export categories and statistics
-   SELECT * FROM paragon_config_category;
-   SELECT * FROM paragon_config_statistic;
-   ```
-
-**Note**: After adding categories/statistics, you may need to reload the Lua scripts or restart the server for changes to take effect.
-
-### Experience Not Being Awarded
-
-**Problem**: Players gain creature kills but no paragon XP
-
-**Solutions**:
-1. Check if system is enabled:
-```sql
-SELECT value FROM paragon_config WHERE field = 'ENABLE_PARAGON_SYSTEM';
--- Should return: 1
-```
-
-2. Verify player meets minimum level requirement:
-```sql
-SELECT value FROM paragon_config WHERE field = 'MINIMUM_LEVEL_FOR_PARAGON_XP';
-```
-
-3. Check ALE logs for errors
-
-### Configuration Changes Not Taking Effect
-
-**Problem**: Config updates don't apply immediately
-
-**Solutions**:
-- The system caches config on server startup
-- For changes to take effect immediately, either:
-  - Reload Lua scripts: `.reload ale` (if command is available)
-  - Restart the server
-
-### Player Data Not Saving
-
-**Problem**: Paragon progress is lost on logout
-
-**Solutions**:
-1. Check character_paragon table exists
-2. Verify player logout hook is firing
-3. Check database permissions (INSERT/UPDATE rights)
-
-### Addon Communication Errors
-
-**Problem**: Client-server communication failing
-
-**Solutions**:
-- Verify addon prefix matches: `ParagonAnniversary`
-- Check CSMH library is properly loaded
-- Review ALE error logs
-
----
-
-## 📚 Additional Configuration
-
-### Adding Custom Statistics
-
-See [README.md](../README.md#adding-custom-stats) for detailed instructions on adding custom paragon statistics.
-
-### Configuring Experience Per Creature/Achievement/Quest
-
-You can set custom experience rewards for specific creatures, achievements, quests, or skills:
-
-```sql
--- Add custom experience reward for a creature (overrides universal default)
-INSERT INTO paragon_config_experience_creature (entry, experience)
-VALUES (1, 500);  -- Creature entry 1 grants 500 paragon XP
-
--- Same for other sources:
--- paragon_config_experience_achievement
--- paragon_config_experience_quest
--- paragon_config_experience_skill
-```
-
----
-
-## 📖 Next Steps
-
-1. **Read the main documentation**: [README.md](../README.md)
-2. **Learn about hooks/extensibility**: [HOOKS](HOOKS.md)
-3. **Create custom modules**: [MODULES](MODULES.md)
-4. **Configure your server** according to your needs
-5. **Test thoroughly** before deploying to production
-
----
-
-## 🆘 Getting Help
-
-If you encounter issues:
-
-1. **Check the documentation**: README.md, HOOKS.md, modules/README.md
-2. **Review server console** for error messages
-3. **Check database tables** to verify installation
-4. **Open an issue** on the project repository with:
-   - Your AzerothCore version
-   - ALE version
-   - Error messages (full stack trace)
-   - Steps to reproduce the problem
-
----
-
-<div align="center">
-
-### 🎉 **Installation Complete!**
-
-Your Paragon System is now ready for use. Enjoy endless progression!
-
-**[Back to README](../README.md)**
-
-</div>
+For implementation details and hard-won compatibility notes, see
+[`doc/CORE_PATCHES.md`](CORE_PATCHES.md).

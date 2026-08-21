@@ -1,8 +1,8 @@
 """Unified generator for ALL Paragon custom spell/talent data.
 
-Single source of truth. Supersedes extended_talents.py and patch_client_dbc.py
-(kept for history; do not run them — they rebuild the MPQs with only their own
-slice of the content).
+Single source of truth. Supersedes the removed extended_talents.py and
+patch_client_dbc.py generators; running either legacy pipeline would rebuild
+the MPQs with only its own slice of the content.
 
 Emits, from the three config tables below:
   - generated/paragon_content.sql : spell_dbc rows (talent ranks, spell ranks,
@@ -1045,7 +1045,8 @@ CUSTOM_SPELLS = [
 # ============================================================================
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CLIENT_DATA = os.path.join(HERE, "..", "Client", "Data")
+CLIENT_DATA = os.path.abspath(os.environ.get(
+    "PARAGON_CLIENT_DATA", os.path.join(HERE, "..", "Client", "Data")))
 CACHE = os.path.join(HERE, "cache")
 OUT_SQL = os.path.join(HERE, "generated", "paragon_content.sql")
 STAGE_LOCALE = os.path.join(HERE, "stage-locale", "DBFilesClient")
@@ -1069,9 +1070,9 @@ STAGE_GENERAL = os.path.join(HERE, "stage-general", "DBFilesClient")
 # for when told "use a late letter", and a same-name drop is an OVERWRITE,
 # which is worse than losing a priority contest.
 #
-# patch-W.MPQ is the Paragon UI art. It has NO generator here -- its source
-# BLPs are not in the tree -- so it is only ever renamed by hand, and the
-# only copy that exists besides the live one is Tools/mpq-backup/.
+# patch-W.MPQ is the Paragon UI art. Its 14 source BLPs live under
+# clientside/Interface and tools/build_ui_art.py packages them separately;
+# this generator owns only the DBC archives.
 DEFAULT_GENERAL_NAME = "patch-X.MPQ"
 DEFAULT_LOCALE_NAME = "patch-enUS-X.MPQ"
 # The names this tool wrote before the rename. They predate ownership markers,
@@ -1877,17 +1878,17 @@ def main():
     print("staged CharTitles.dbc %d -> %d records (id %d '%s' mask %d; id %d '%s' mask %d) + server copy in generated/"
           % (cnrec, cnrec + 2, PARAGON_TITLE_ID, PARAGON_TITLE_NAME, PARAGON_TITLE_MASK,
              PINNACLE_TITLE_ID, PINNACLE_TITLE_NAME, PINNACLE_TITLE_MASK))
-    # SERVER side of the Pinnacle title: the worldserver's dbc directory is a
-    # READ-ONLY docker volume (the docker cp path used for the Paragon title
-    # in 2026-08 no longer works — that file is baked in at 143 records), so
-    # new titles go through the chartitles_dbc override table, which
-    # DBCStores.cpp merges on top of the file. Only ids NOT already in the
-    # baked file may be listed here (200 is; 201 is not).
-    sql.append("DELETE FROM chartitles_dbc WHERE ID = %d;" % PINNACLE_TITLE_ID)
-    sql.append("INSERT INTO chartitles_dbc (ID, Name_Lang_enUS, Name_Lang_Mask, "
-               "Name1_Lang_enUS, Name1_Lang_Mask, Mask_ID) VALUES (%d, '%s', %d, '%s', %d, %d);"
-               % (PINNACLE_TITLE_ID, esc(PINNACLE_TITLE_NAME), LOC_MASK,
-                  esc(PINNACLE_TITLE_NAME), LOC_MASK, PINNACLE_TITLE_MASK))
+    # SERVER side of both custom titles. Fresh Docker hosts do not carry id
+    # 200 in their baked CharTitles.dbc, while the original development image
+    # did. Keeping both rows in the unified override SQL makes the install
+    # independent of that image history. DBCStores.cpp merges these rows at
+    # worldserver startup.
+    for tid, tmask, tname in ((PARAGON_TITLE_ID, PARAGON_TITLE_MASK, PARAGON_TITLE_NAME),
+                              (PINNACLE_TITLE_ID, PINNACLE_TITLE_MASK, PINNACLE_TITLE_NAME)):
+        sql.append("DELETE FROM chartitles_dbc WHERE ID = %d;" % tid)
+        sql.append("INSERT INTO chartitles_dbc (ID, Name_Lang_enUS, Name_Lang_Mask, "
+                   "Name1_Lang_enUS, Name1_Lang_Mask, Mask_ID) VALUES (%d, '%s', %d, '%s', %d, %d);"
+                   % (tid, esc(tname), LOC_MASK, esc(tname), LOC_MASK, tmask))
 
     # ---- Lockpicking class gate, CLIENT half (Codex node 56) ---------------
     # The server override row below is necessary but NOT sufficient. The

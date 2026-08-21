@@ -2233,6 +2233,8 @@ INSERT INTO spell_dbc (`ID`, `Category`, `DispelType`, `Mechanic`, `Attributes`,
 INSERT INTO spell_ranks (first_spell_id, spell_id, `rank`) VALUES (23922, 1901070, 11);
 INSERT INTO spell_threat (entry, flatMod, pctMod, apPctMod) VALUES (1901070, 770, 1, 0);
 INSERT INTO trainer_spell (TrainerId, SpellId, MoneyCost, ReqSkillLine, ReqSkillRank, ReqAbility1, ReqAbility2, ReqAbility3, ReqLevel) VALUES (1, 1901070, 450000000, 0, 0, 1900146, 1901056, 0, 80);
+DELETE FROM chartitles_dbc WHERE ID = 200;
+INSERT INTO chartitles_dbc (ID, Name_Lang_enUS, Name_Lang_Mask, Name1_Lang_enUS, Name1_Lang_Mask, Mask_ID) VALUES (200, 'Paragon %s', 16712190, 'Paragon %s', 16712190, 143);
 DELETE FROM chartitles_dbc WHERE ID = 201;
 INSERT INTO chartitles_dbc (ID, Name_Lang_enUS, Name_Lang_Mask, Name1_Lang_enUS, Name1_Lang_Mask, Mask_ID) VALUES (201, '%s the Pinnacle', 16712190, '%s the Pinnacle', 16712190, 144);
 DELETE FROM skillraceclassinfo_dbc WHERE ID = 55;

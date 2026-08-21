@@ -160,11 +160,11 @@ paragon data is still loading are refused by default. A dedicated marker aura
 is no longer involved (1900006 existed briefly and was retired).
 
 **Client patch required** (unlike everything else here). The talent frame reads
-the *client's* DBCs, so ranks 6–9 need `Client/Data/patch-5.MPQ` and
-`Client/Data/enUS/patch-enUS-5.MPQ` (patched `Talent.dbc` + `Spell.dbc`, built
-by `scratchpad/patch_client_dbc.py` + `build_mpq.py`). Because DBCs are static,
-**every** Paladin sees the 9-rank talent; those below paragon 125 simply have
-their clicks refused by the server.
+the *client's* DBCs, so ranks 6–9 need `Data/patch-X.MPQ` and
+`Data/enUS/patch-enUS-X.MPQ` (patched `Talent.dbc` + `Spell.dbc`, built by the
+unified `Tools/paragon_client_patch.py`). Because DBCs are static, every class
+sees its extended talent rows; the server refuses clicks until the milestone
+configured in `EXTENDED_TALENTS` is reached.
 
 ## 1d. C++ patch — dual class auras (paragon level 200, Paladins)
 
@@ -1014,7 +1014,7 @@ was retired when the §1c hook replaced it.)
 Ranks 6–9 are full clones of spell 20266 (rank 5) with only the ID, base points
 and rank subtext changed. They — and the `talent_dbc` override row giving
 talent 2185 nine ranks, and the client MPQs — are all produced by
-**`Tools/extended_talents.py`** (config table at the top; `--apply` pipes the
+**`Tools/paragon_client_patch.py`** (`TALENT_RANKS`; `--apply` pipes the unified
 SQL in). DB rows override DBC file rows by ID, and `DBCDatabaseLoader` maps
 columns **positionally against the format string**, so `talent_dbc`'s column
 order must keep matching `TalentEntryfmt`.
@@ -1022,9 +1022,9 @@ order must keep matching `TalentEntryfmt`.
 ### The unified generator
 
 **`Tools/paragon_client_patch.py`** is the single source of truth for all
-custom spell/talent data (it superseded `extended_talents.py` and
-`patch_client_dbc.py` — don't run those, they'd rebuild the MPQs with only
-their own slice). Three config tables — `TALENT_RANKS`, `SPELL_RANKS`,
+custom spell/talent data (the obsolete `extended_talents.py` and
+`patch_client_dbc.py` pipelines were removed because they rebuilt MPQs with
+only their own slice). Three config tables — `TALENT_RANKS`, `SPELL_RANKS`,
 `MARKERS` — produce `generated/paragon_content.sql` (`--apply` pipes it in)
 and both patch-X MPQs. Notes learned the hard way: `spell_dbc` mask columns
 are unsigned (Holy Light's family mask has the high bit set — emit unsigned),
@@ -2907,13 +2907,14 @@ temporary file and atomically replaces a known-owned archive only after the new
 MPQ verifies. Legacy `patch-5` / `patch-enUS-5` files are reported but never
 deleted automatically because the old archives predate the marker.
 
-### !! patch-W.MPQ HAS NO GENERATOR !!
+### patch-W.MPQ is reproducible
 
-Its source BLPs are not anywhere in the tree — `grep` across the whole project
-finds no reference to it at all. It was built once, by hand. **The only other
-copy is `Tools/mpq-backup/`**, made at the same time as this rename. If it is
-ever overwritten by a third-party patch and that backup is gone, the Paragon
-UI art is gone with it.
+The 14 source BLPs are tracked under `clientside/Interface` outside the addon.
+`Tools/build_ui_art.py` stages only those files and delegates to the same
+self-verifying `build_mpq.py` writer used by the DBC generator. The addon stays
+as a normal `Interface/AddOns/Paragon` directory; it is never packed into the
+archive. The historical `Tools/mpq-backup/patch-4.MPQ` is unmarked and is not
+an install artifact.
 
 ### Do HD patches actually conflict?
 
@@ -2959,7 +2960,8 @@ reports which archive actually wins for every file we ship.
 
 ```
 python Tools/check_patch_collisions.py
-python Tools/check_patch_collisions.py --general-name patch-Y.MPQ \
+python Tools/check_patch_collisions.py --ui-name patch-V.MPQ \
+    --general-name patch-Y.MPQ \
     --locale-name patch-enUS-Y.MPQ
 ```
 

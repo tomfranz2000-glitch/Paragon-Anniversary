@@ -1,23 +1,16 @@
-# mpq-backup
+# Legacy UI archive
 
-## patch-4.MPQ is not a backup you can delete
+`patch-4.MPQ` is the original, unmarked UI-art archive retained only as a
+historical recovery copy. **Do not install or rename it.** It predates the
+Paragon ownership marker and the safe archive-replacement checks.
 
-It holds the source art for `patch-W.MPQ` -- 14 BLP textures, 13 of which the
-Paragon addon references by name and nothing else does. **No generator can
-rebuild it.** Verified to contain zero Blizzard DBC files, so it is ours to
-carry.
+The authoritative sources are the 14 BLP files under
+`clientside/Interface` outside `AddOns`. Build the supported archive directly
+from those files:
 
-## What used to be here, and why it is gone
+```bash
+python tools/build_ui_art.py
+```
 
-`patch-5.MPQ` and `patch-enUS-5.MPQ` were the legacy DBC archives, superseded
-by the `patch-X` naming. Both are removed because they are:
-
-- **regenerable** -- `tools/paragon_client_patch.py` rebuilds their contents
-  from your own client extraction, and
-- **not ours to redistribute** -- probing their hash tables shows 3 and 8
-  whole copies of Blizzard DBC files respectively (`Spell.dbc`, `Talent.dbc`,
-  `Achievement*.dbc`, `CharTitles.dbc`, `SkillLineAbility.dbc`,
-  `SkillRaceClassInfo.dbc`).
-
-The same reasoning is why `*.MPQ` is gitignored everywhere except this
-directory.
+That command writes `patch-W.MPQ`, verifies every source byte, and adds the
+ownership marker required for safe future rebuilds.

@@ -65,9 +65,31 @@ Run `05_apply_anniversary_config.sql` once when upgrading an existing database;
 it intentionally replaces previous configuration values with this fork's realm
 preset.
 
+## Generated world content
+
+`content/01_paragon_content.sql` is the single complete snapshot for custom
+spells, talents, trainer ranks, achievements, criteria, and titles in
+`acore_world`. The canonical installation command is:
+
+```bash
+python tools/paragon_client_patch.py --apply
+```
+
+That command regenerates `tools/generated/paragon_content.sql`, builds the
+matching client DBC archives, and applies the SQL. Import
+`content/01_paragon_content.sql` manually only for an intentional SQL-only
+deployment or recovery; do not apply it as an additional mandatory step after
+`--apply`.
+
+Older separate content files for extended talents, Consecration, reward auras,
+and the Paragon title were consolidated into this one source and removed.
+
 ## Error Handling
 
-If you start the server without executing these migration files, you will see error messages in the console indicating which tables are missing. Simply execute the required SQL files and reload the Lua scripts using `.reload eluna`.
+If you start the server without executing these migration files, the console
+reports the missing tables. Stop the worldserver, execute the required SQL and
+generated-content steps, then start it again. A script reload cannot refresh
+the custom DBC override tables.
 
 ## Example Data
 

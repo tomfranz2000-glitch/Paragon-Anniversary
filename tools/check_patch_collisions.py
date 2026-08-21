@@ -6,7 +6,8 @@ client's real mount ladder and then, for every file the Paragon patches ship,
 reports which archive actually wins.
 
     python check_patch_collisions.py
-    python check_patch_collisions.py --general-name patch-Y.MPQ \
+    python check_patch_collisions.py --ui-name patch-V.MPQ \
+        --general-name patch-Y.MPQ \
         --locale-name patch-enUS-Y.MPQ
 
 WHY THIS EXISTS
@@ -45,10 +46,11 @@ import struct
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CLIENT_DATA = os.path.abspath(os.path.join(HERE, "..", "Client", "Data"))
+CLIENT_DATA = os.path.abspath(os.environ.get(
+    "PARAGON_CLIENT_DATA", os.path.join(HERE, "..", "Client", "Data")))
 LOCALE = "enUS"
 
-UI_ART_ARCHIVE = "patch-W.MPQ"
+DEFAULT_UI_NAME = "patch-W.MPQ"
 DEFAULT_GENERAL_NAME = "patch-X.MPQ"
 DEFAULT_LOCALE_NAME = "patch-enUS-X.MPQ"
 
@@ -187,12 +189,15 @@ def listfile_of(path):
 # --------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--ui-name", default=DEFAULT_UI_NAME,
+                    metavar="PATCH-?.MPQ")
     ap.add_argument("--general-name", default=DEFAULT_GENERAL_NAME,
                     metavar="PATCH-?.MPQ")
     ap.add_argument("--locale-name", default=DEFAULT_LOCALE_NAME,
                     metavar="PATCH-ENUS-?.MPQ")
     args = ap.parse_args()
     try:
+        validate_patch_name(args.ui_name)
         validate_patch_name(args.general_name)
         validate_patch_name(args.locale_name, locale=True)
     except ValueError as exc:
@@ -203,7 +208,7 @@ def main():
     foreign_targets = [rel for rel in generated
                        if os.path.exists(os.path.join(CLIENT_DATA, rel))
                        and not is_owned_archive(os.path.join(CLIENT_DATA, rel))]
-    ours = [UI_ART_ARCHIVE] + [rel for rel in generated
+    ours = [args.ui_name] + [rel for rel in generated
                                if os.path.exists(os.path.join(CLIENT_DATA, rel))
                                and is_owned_archive(os.path.join(CLIENT_DATA, rel))]
     ladder = mount_ladder()
@@ -212,7 +217,7 @@ def main():
 
     print("MOUNT LADDER (last wins)")
     print("-" * 68)
-    missing_ours = set(o.lower() for o in [UI_ART_ARCHIVE] + generated)
+    missing_ours = set(o.lower() for o in [args.ui_name] + generated)
     for prio, rel in ladder:
         full = os.path.join(CLIENT_DATA, rel)
         if not os.path.exists(full):
@@ -231,7 +236,8 @@ def main():
         for rel in foreign_targets:
             print("     %s" % rel)
         print("   Choose free archive names when building and pass those same names")
-        print("   to this checker with --general-name and --locale-name.")
+        print("   to this checker with --ui-name, --general-name, and")
+        print("   --locale-name.")
         return 1
     if missing_ours:
         print("!! expected archive(s) not on the ladder: %s"

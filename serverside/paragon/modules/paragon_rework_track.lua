@@ -2218,7 +2218,7 @@ local SPECIAL_AURAS = {
 
 -- Talents raised beyond the retail 5-rank cap. The DATA for each entry
 -- (spell_dbc/talent_dbc rows + the client patch-X MPQs) comes from
--- Tools/extended_talents.py; this table is the GATE. Reward entries of type
+-- Tools/paragon_client_patch.py; this table is the GATE. Reward entries of type
 -- SPECIAL/TALENT_MASTERY are informational labels — enforcement is here.
 -- Talent.dbc physically caps a talent at 9 ranks total.
 local EXTENDED_TALENTS = {
