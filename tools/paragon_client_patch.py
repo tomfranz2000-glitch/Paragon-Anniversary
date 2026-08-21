@@ -1269,6 +1269,8 @@ def main():
     args = ap.parse_args()
 
     load_generated_class_data()
+    for stage in (STAGE_LOCALE, STAGE_GENERAL):
+        os.makedirs(stage, exist_ok=True)
 
     cols = [(n, t, "unsigned" in ct) for n, t, ct in mysql(
         "SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE FROM information_schema.COLUMNS "
@@ -2158,7 +2160,6 @@ def main():
               % (tnrec, len(records), [nt["talent_id"] for nt in NEW_TALENTS]))
 
     for stage in (STAGE_LOCALE, STAGE_GENERAL):
-        os.makedirs(stage, exist_ok=True)
         open(os.path.join(stage, "Talent.dbc"), "wb").write(bytes(talent_out))
         open(os.path.join(stage, "SkillLineAbility.dbc"), "wb").write(bytes(sla_out))
         open(os.path.join(stage, "SkillRaceClassInfo.dbc"), "wb").write(bytes(srci_out))
