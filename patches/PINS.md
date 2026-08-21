@@ -20,6 +20,19 @@ change in two files; never apply or regenerate one without the other.
 
 ## mod-ale is required, not optional
 
+Clone `github.com/azerothcore/mod-eluna` with the explicit target directory
+**`modules/mod-ale`**:
+
+```bash
+cd /path/to/azerothcore
+git clone https://github.com/azerothcore/mod-eluna.git modules/mod-ale
+```
+
+The default clone directory, `modules/mod-eluna`, is not a supported name.
+The core's `modules/CMakeLists.txt` only runs `ConfigureALEModule` when the
+directory matches `mod-ale`; under the default name the build discovers the
+sources but omits the Lua headers and `lualib`, then fails at `lua.h`.
+
 The server Lua will not load on stock `mod-eluna`. `05-mod-ale.patch` adds the
 `PLAYER_EVENT_ON_CAN_LEARN_TALENT` (74) and `MAP_EVENT_ON_ENCOUNTER_COMPLETE`
 (36) hooks, an `IsPlayerBot` method, and widens `ItemMethods` to the full

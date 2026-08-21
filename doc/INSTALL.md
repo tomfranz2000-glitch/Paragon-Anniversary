@@ -14,6 +14,25 @@ Before installing the Paragon System, ensure you have:
 - ✅ **World of Warcraft 3.3.5a client** for testing
 - ✅ Git or file explorer for copying files
 
+### Required ALE Directory Name
+
+Clone the upstream `mod-eluna` repository into the core as
+**`modules/mod-ale`**. The target directory name is required by AzerothCore's
+module CMake logic:
+
+```bash
+cd /path/to/azerothcore
+git clone https://github.com/azerothcore/mod-eluna.git modules/mod-ale
+```
+
+Do not omit the final `modules/mod-ale` argument. Git would otherwise create a
+directory named `mod-eluna`; AzerothCore discovers its sources but skips the
+ALE-specific Lua include paths and `lualib` linkage, eventually failing with
+`fatal error: 'lua.h' file not found`.
+
+Check out the base commit recorded in [`patches/PINS.md`](../patches/PINS.md)
+and apply `patches/05-mod-ale.patch` before building the core.
+
 ### Required Dependencies
 
 The system requires these libraries to be present in your ALE scripts directory:
@@ -377,6 +396,19 @@ Once the client addon is complete:
 ---
 
 ## 🔧 Troubleshooting
+
+### Build error: `fatal error: 'lua.h' file not found`
+
+If the error originates below `modules/mod-eluna/src/LuaEngine`, the ALE
+repository was cloned under its default directory name. Rename or clone it as
+`modules/mod-ale`, clear the failed CMake build directory/cache, and configure
+the core again.
+
+AzerothCore discovers modules without caring about their directory names, but
+its ALE setup currently matches `mod-ale`. That setup supplies the Lua include
+directories, links `lualib`, enables the AzerothCore compile definitions, and
+installs ALE's extensions. A stale CMake cache can preserve the broken module
+graph after the directory is corrected, so a clean reconfigure is required.
 
 ### Error: `SetData` or `GetData` is nil on player login
 

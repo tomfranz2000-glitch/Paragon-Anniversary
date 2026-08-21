@@ -140,6 +140,11 @@ Configure `LEVEL_LINKED_TO_ACCOUNT` in `paragon_config`:
 4. ⚙️ Configure `paragon_config` table with your desired settings
 
 > [!IMPORTANT]
+> Clone `https://github.com/azerothcore/mod-eluna.git` with the explicit target
+> `modules/mod-ale`. The core identifies ALE by that directory name; a default
+> clone into `modules/mod-eluna` fails later while compiling `LuaEngine` because
+> the Lua headers and library were not configured.
+>
 > Installing mod-ale is not enough in Docker: its runtime image omits the ALE
 > extension files. Copy them into the bind-mounted script path explicitly; see
 > the [detailed installation guide](doc/INSTALL.md#step-1-copy-the-paragon-scripts-and-ale-extensions).

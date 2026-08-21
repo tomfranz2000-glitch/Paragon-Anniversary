@@ -15,7 +15,7 @@ network service, the licence requires you to offer its source to users.
 
 | what | why |
 |---|---|
-| `mod-eluna` + `patches/05-mod-ale.patch` | the server Lua needs two hooks and an `IsPlayerBot` method stock ALE does not have |
+| `mod-eluna` cloned as **`modules/mod-ale`** + `patches/05-mod-ale.patch` | the core configures Lua only for that module directory name; the server Lua also needs two hooks and an `IsPlayerBot` method stock ALE does not have |
 | `mod-transmog` (forked) | `paragon_transmog_bonus.lua` and `paragon_collection_rewards.lua` read `custom_unlocked_appearances` |
 | `mod-collections` (optional) | the collection XP source reads `account_collection_*`; without it those awards are simply zero |
 | a core with `patches/01-core-paragon.patch` applied | 13 files |
