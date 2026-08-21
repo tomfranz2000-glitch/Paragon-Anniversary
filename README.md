@@ -352,6 +352,8 @@ sql/
 ├── 04_create_paragon_tables.sql    # Paragon progression tables
 ├── 05_create_triggers.sql          # Validation triggers
 ├── 06_insert_default_config.sql    # Default configuration
+├── 07_apply_anniversary_config.sql # Anniversary realm configuration
+├── 08_create_runtime_tables.sql    # Runtime support tables
 ├── 11-13-2026_Example_Data.sql     # Example categories & statistics
 └── README.md                       # SQL installation guide
 ```

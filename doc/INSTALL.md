@@ -54,6 +54,7 @@ your_ale_scripts_directory/
     │   ├── 05_create_triggers.sql
     │   ├── 06_insert_default_config.sql
     │   ├── 07_apply_anniversary_config.sql
+    │   ├── 08_create_runtime_tables.sql
     │   └── README.md
     ├── paragon_class.lua
     ├── paragon_config.lua
@@ -79,6 +80,7 @@ SOURCE 04_create_paragon_tables.sql;
 SOURCE 05_create_triggers.sql;
 SOURCE 06_insert_default_config.sql;
 SOURCE 07_apply_anniversary_config.sql;
+SOURCE 08_create_runtime_tables.sql;
 ```
 
 **Alternative methods:**
@@ -98,7 +100,7 @@ USE acore_ale;  -- or your configured database name
 SHOW TABLES LIKE 'paragon%';
 SHOW TABLES LIKE '%paragon%';
 
--- Expected tables (10 total):
+-- Expected tables (15 total):
 -- paragon_config
 -- paragon_config_category
 -- paragon_config_statistic
@@ -109,6 +111,11 @@ SHOW TABLES LIKE '%paragon%';
 -- character_paragon
 -- character_paragon_stats
 -- account_paragon
+-- paragon_collectible_spell_xp
+-- paragon_collectible_item_xp
+-- paragon_rewarded_collectible_spell
+-- paragon_rewarded_appearance
+-- paragon_banked_experience
 
 -- Verify default configuration was inserted
 SELECT COUNT(*) FROM paragon_config;
@@ -326,7 +333,7 @@ The database 'acore_ale' does not exist.
 SOLUTION:
   1. Navigate to: lua_scripts/game/systems/paragon/sql/
   2. Execute 01_create_database.sql
-  3. Execute all other SQL files (02 through 06)
+  3. Execute all other SQL files (02 through 08)
   4. Reload Eluna scripts: .reload eluna
 =================================================================
 ```

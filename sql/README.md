@@ -17,6 +17,7 @@ Execute the following files in order using your preferred MySQL client (MySQL Wo
 5. **05_create_triggers.sql** - Creates validation triggers for statistics
 6. **06_insert_default_config.sql** - Inserts default configuration values
 7. **07_apply_anniversary_config.sql** - Updates an existing installation to the canonical Anniversary realm values
+8. **08_create_runtime_tables.sql** - Creates the collection-reward and pre-80 banking support tables
 
 ### Quick Installation (All at once)
 
@@ -30,6 +31,7 @@ SOURCE 04_create_paragon_tables.sql;
 SOURCE 05_create_triggers.sql;
 SOURCE 06_insert_default_config.sql;
 SOURCE 07_apply_anniversary_config.sql;
+SOURCE 08_create_runtime_tables.sql;
 ```
 
 ### Verification
@@ -46,6 +48,11 @@ After running all migration files, verify the installation by checking that the 
 - `acore_ale.character_paragon`
 - `acore_ale.account_paragon`
 - `acore_ale.character_paragon_stats`
+- `acore_ale.paragon_collectible_spell_xp`
+- `acore_ale.paragon_collectible_item_xp`
+- `acore_ale.paragon_rewarded_collectible_spell`
+- `acore_ale.paragon_rewarded_appearance`
+- `acore_ale.paragon_banked_experience`
 
 And verify that default configuration values were inserted:
 
@@ -79,7 +86,7 @@ This file contains a **complete example configuration** with:
 
 **How to use:**
 ```sql
--- After executing files 01-07, optionally load the example data:
+-- After executing files 01-08, optionally load the example data:
 SOURCE 11-13-2026_Example_Data.sql;
 ```
 
