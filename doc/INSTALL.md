@@ -270,8 +270,9 @@ The client-side UI is currently **in development**. Basic functionality is worki
 
 #### As a Patch/FrameXML
 
-1. Copy the client-side files to a `Patch-4.MPQ` patch directory
-2. Test in game
+1. Copy `patch-X.MPQ` to the client's `Data/` directory
+2. Copy `patch-enUS-X.MPQ` to the client's `Data/enUS/` directory
+3. Fully restart the client and test in game
 
 ---
 

@@ -7,7 +7,7 @@ slice of the content).
 Emits, from the three config tables below:
   - generated/paragon_content.sql : spell_dbc rows (talent ranks, spell ranks,
     markers), talent_dbc override, spell_ranks chain rows, npc_trainer rows
-  - Client/Data/patch-5.MPQ + Client/Data/enUS/patch-enUS-5.MPQ with the
+  - Client/Data/patch-X.MPQ + Client/Data/enUS/patch-enUS-X.MPQ with the
     patched Talent.dbc + Spell.dbc (built from pristine extracts every run;
     includes the client-only mount move-cast pass — milestone 750, see the
     comment block in main())
