@@ -3,8 +3,9 @@
     "Paragon Progression Design.md")
 
     Replaces the flat universal XP values with content-worth values:
-      - Creatures: at-level base XP formula (content-tier constants, elite x2),
-        split across the killer's group like regular kill XP.
+      - Creatures: the core-equivalent at-level reward (including creature
+        template, health, elite, no-XP and realm-rate modifiers), split using
+        the participating group size before Paragon eligibility is applied.
       - Quests: the quest's own at-level XP (quest_template.RewardXPDifficulty
         indexed into the client's QuestXP table).
       - Achievements: achievement points x PARAGON_ACHIEVEMENT_POINT_XP.
@@ -12,9 +13,10 @@
     Mechanism: upstream's UpdatePlayerExperience prefers a per-entry value from
     Config.experience[source] over the universal fallback. This module computes
     values inside the OnBefore*Experience events (which fire just before that
-    lookup) and writes them into the cache. Hand-authored DB override rows are
-    snapshotted at load and always win as the base value; for creatures they
-    act as the pre-split XP pool.
+    lookup) and writes them into the cache. Hand-authored quest and achievement
+    overrides are snapshotted at load and always win. Creature overrides are
+    deliberately ignored: kill XP must always reflect the creature's actual
+    native reward characteristics.
 
     Data dependencies (generated from client DBCs):
       ParagonReworkData_QuestXP, ParagonReworkData_AchievementPoints
@@ -25,7 +27,6 @@ local Config = require("paragon_config")
 -- Pristine DB-authored overrides, snapshotted before this module starts
 -- writing computed values into the live cache.
 local db_overrides = {
-    creature = {},
     quest = {},
     achievement = {},
 }
@@ -42,70 +43,48 @@ end
 -- VALUE CALCULATION
 -- ============================================================================
 
---- At-level base XP for a mob: what it is worth to a same-level player.
---- Constants mirror the core's per-content-tier base gain.
-local function CreatureAtLevelXP(creature)
-    local level = creature:GetLevel()
-    local base
-    if level <= 60 then
-        base = 5 * level + 45
-    elseif level <= 70 then
-        base = 5 * level + 235
-    else
-        base = 5 * level + 580
-    end
-
-    if creature:IsElite() then
-        base = base * 2
-    end
-
-    return base
-end
-
---- Group-share factor mirroring regular kill XP: split across eligible
---- members, with the standard group-size bonus for parties (raids: none).
---- Returns share_multiplier (applied to the pool value) and the list of
---- eligible members other than the killer.
-local MIN_LEVEL = function()
-    return tonumber(Config:GetByField("MINIMUM_LEVEL_FOR_PARAGON_XP")) or 80
-end
-
+--- Standard group-size bonus. The divisor is the number of participating
+--- members, not the number who may receive Paragon XP. Thus one eligible real
+--- player in a five-member party still receives 1.4 / 5 = 28%.
 local GROUP_BONUS = { [3] = 1.166, [4] = 1.3 }
+local missing_xp_api_reported = false
 
-local function GroupShare(killer, creature)
-    local group = killer:GetGroup()
-    if not group then
-        return 1.0, nil
-    end
-
-    local share_range = tonumber(Config:GetByField("PARAGON_GROUP_XP_DISTANCE")) or 74
-    local min_level = MIN_LEVEL()
-    local is_raid = group:IsRaidGroup()
-
-    local eligible_count = 0
-    local others = {}
-    for _, member in pairs(group:GetMembers()) do
-        if member:IsAlive()
-            and member:GetLevel() >= min_level
-            and member:GetMapId() == killer:GetMapId()
-            and member:GetDistance(killer) <= share_range then
-            eligible_count = eligible_count + 1
-            if member:GetGUIDLow() ~= killer:GetGUIDLow() then
-                table.insert(others, member)
-            end
-        end
-    end
-
-    if eligible_count <= 1 then
-        return 1.0, nil
+local function StandardGroupShare(participant_count, is_raid)
+    participant_count = tonumber(participant_count) or 0
+    if participant_count <= 1 then
+        return 1.0
     end
 
     local bonus = 1.0
     if not is_raid then
-        bonus = GROUP_BONUS[eligible_count] or (eligible_count >= 5 and 1.4 or 1.0)
+        bonus = GROUP_BONUS[participant_count]
+            or (participant_count >= 5 and 1.4 or 1.0)
     end
 
-    return bonus / eligible_count, others
+    return bonus / participant_count
+end
+
+local function GroupShare(recipient, creature)
+    local group = recipient:GetGroup()
+    if not group then
+        return 1.0
+    end
+
+    local share_range = tonumber(Config:GetByField("PARAGON_GROUP_XP_DISTANCE")) or 74
+    local map = creature:GetMap()
+    local is_dungeon = map and map:IsDungeon()
+    local is_raid = map and map:IsRaid() and group:IsRaidGroup()
+
+    local participant_count = 0
+    for _, member in pairs(group:GetMembers()) do
+        if member:IsAlive()
+            and member:GetMapId() == creature:GetMapId()
+            and (is_dungeon or member:GetDistance(creature) <= share_range) then
+            participant_count = participant_count + 1
+        end
+    end
+
+    return StandardGroupShare(participant_count, is_raid)
 end
 
 --- Achievement value: DB override wins, else points x multiplier.
@@ -152,43 +131,54 @@ local function QuestValue(player, quest)
     return row[difficulty + 1] or 0
 end
 
---- Gray threshold, mirroring the core (Formulas.h GetGrayLevel).
-local function GrayLevel(pl_level)
-    if pl_level <= 5 then
+--- Full per-recipient kill-share computation.
+---
+--- GetAtLevelXPReward is supplied by the required ALE patch and mirrors the
+--- core's Acore::XP::Gain plus KillRewarder's low-health adjustment, but fixes
+--- the virtual player level to the creature level. Gray status remains a
+--- recipient property and applies a flat 50% reduction.
+function ParagonRework_ComputeKillShare(recipient, creature, participant_count, is_raid)
+    if not creature.GetAtLevelXPReward then
+        if not missing_xp_api_reported then
+            print("[Paragon] GetAtLevelXPReward missing; creature XP disabled until the ALE patch is installed")
+            missing_xp_api_reported = true
+        end
         return 0
-    elseif pl_level <= 39 then
-        return pl_level - 5 - math.floor(pl_level / 10)
-    elseif pl_level <= 59 then
-        return pl_level - 1 - math.floor(pl_level / 5)
     end
-    return pl_level - 9
-end
 
---- Full kill-share computation. Global: the party-credit module calls this
---- independently so the numbers always match regardless of handler order.
---- Returns per-member share and the eligible members other than the killer.
---- Nerf 2026-08-19: mobs gray to the KILLER pay half — trivially farming
---- old content stays worthwhile but no longer competes with at-level play;
---- the moment a mob cons green or better it pays in full again.
-function ParagonRework_ComputeKillShare(killer, creature)
-    local pool = db_overrides.creature[creature:GetEntry()] or CreatureAtLevelXP(creature)
-    if creature:GetLevel() <= GrayLevel(killer:GetLevel()) then
+    local pool = creature:GetAtLevelXPReward()
+    if pool <= 0 then
+        return 0
+    end
+
+    -- Custom Paragon boundary: mobs zero through nine levels below the
+    -- recipient pay in full; ten or more levels below pay half.
+    if recipient:GetLevel() - creature:GetLevel() >= 10 then
         pool = pool * 0.5
     end
-    local share_mult, others = GroupShare(killer, creature)
-    local share = math.floor(pool * share_mult + 0.5)
-    if share < 1 then
-        share = 1
+
+    local share_mult
+    if tonumber(participant_count) and tonumber(participant_count) > 0 then
+        -- ALE sends an integer count instead of a pre-divided C++ float. This
+        -- avoids losing exact boundaries such as 1000 * 1.3 / 4 = 325 when
+        -- the float crosses into Lua as 0.324999988.
+        share_mult = StandardGroupShare(participant_count, is_raid)
+    else
+        share_mult = GroupShare(recipient, creature)
     end
-    return share, others
+    -- Match KillRewarder's uint32 conversion: truncate after group sharing.
+    -- The tiny epsilon only neutralizes binary representation below an exact
+    -- integer boundary (for example 1000 * 1.4 / 5 = 279.99999999999994).
+    local share = math.floor(pool * share_mult + 1e-7)
+    return share
 end
 
 -- ============================================================================
 -- EVENT SUBSCRIBERS (mutate the config cache; return nothing)
 -- ============================================================================
 
-RegisterMediatorEvent("OnBeforeCreatureExperience", function(player, creature, paragon)
-    local share = ParagonRework_ComputeKillShare(player, creature)
+RegisterMediatorEvent("OnBeforeCreatureExperience", function(player, creature, paragon, participant_count, is_raid)
+    local share = ParagonRework_ComputeKillShare(player, creature, participant_count, is_raid)
     Config.experience.creature[creature:GetEntry()] = share
 end)
 

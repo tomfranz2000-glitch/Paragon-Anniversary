@@ -275,9 +275,9 @@ Order of Execution:
 ### Example 1: Experience Gain Flow
 
 ```
-Player kills creature
+AzerothCore KillRewarder credits a recipient
     ↓
-Hook.OnPlayerKillCreature
+Hook.OnPlayerKillReward
     ↓
 OnBeforeCreatureExperience (Module hook)
     ↓
@@ -298,6 +298,8 @@ OnParagonStateSync (Custom module hooks)
 OnAfterUpdatePlayerExperience (paragon_anniversary)
     ↓
 Send data to client
+    ↓
+OnAfterCreatureExperienceAwarded (anchor the native XP drop to the victim)
 ```
 
 ### Example 2: Statistic Change Flow

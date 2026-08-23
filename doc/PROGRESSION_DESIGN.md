@@ -25,21 +25,23 @@ Two lanes deliver that:
 ### Creature kills — at-level formula
 
 A mob grants the XP it would be worth to a player *of the mob's own level*,
-regardless of the killer's level. No gray-out, no level penalty.
+regardless of the recipient's level. Mobs zero through nine levels below the
+recipient pay that full value; mobs ten or more levels below pay a flat 50%.
 
 Formula (matches the core's own base-XP math):
 
-| Content tier | Base XP at mob level L | Example |
+| Map/zone content tier | Base XP at mob level L | Example |
 |---|---|---|
-| Classic (1–60) | `5·L + 45` | Level 1 boar = **50** |
-| TBC (61–70) | `5·L + 235` | Level 70 mob = 585 |
-| WotLK (71–80) | `5·L + 580` | Level 80 mob = 980 |
+| Classic | `5·L + 45` | Level 1 boar = **50** |
+| The Burning Crusade | `5·L + 235` | Level 70 mob = 585 |
+| Wrath of the Lich King | `5·L + 580` | Level 80 mob = 980 |
 
-- Elite: **×2** [tunable].
-- **Boss override table**: `paragon_config_experience_creature` holds hand-tuned
-  values for marquee kills (target: endgame dungeon boss ≈ **12,000**, raid
-  bosses above that) [tunable]. Formula covers the world; the table covers the
-  ~hundreds of bosses that matter.
+- The native calculation is authoritative: elite rank, `ExperienceModifier`,
+  low-health `HealthModifier`, no-XP flags, partial player-damage scaling, map
+  content tier, and the realm kill-XP rate all apply exactly as they do in the
+  core.
+- Creature override rows do not replace this value. This prevents low-health
+  trash creatures from receiving a generic, inflated elite reward.
 
 ### Quests — at-level value
 
@@ -94,20 +96,21 @@ unless a one-shot audit is added later. [open]
 
 ## Party and raid credit — ships with this, not after
 
-Today only the killing player earns creature XP; with 12k bosses that breaks
-group play (tank/healer earn zero).
+Creature XP follows AzerothCore's native per-recipient group kill-credit path,
+so tanks, healers, and other participating members are credited independently
+of who lands the killing blow.
 
-- Paragon XP from kills is distributed **exactly like regular kill XP**: split
-  across eligible group members with the standard group-size bonus multipliers,
-  standard share range, dead members excluded. If the base game would have
-  given a member a share of the mob's XP, they get the equivalent paragon
-  share; the only extra rule is the level-80 gate.
-- Tuning consequence: boss override values are *pre-split* pool values — a
-  12,000 boss in a 5-man pays each member ~3,400. Calibrate overrides with
-  that in mind (or raise them if the intent is 12k per person).
-- **Playerbots note**: bots are Players and would accrue alongside their group.
-  Harmless mechanically; consider a config toggle to exclude bot accounts to
-  keep the paragon tables clean. [open]
+- AzerothCore's `KillRewarder` decides who receives group kill credit. This is
+  independent of whether the final blow came from a player, altbot, pet,
+  guardian, or totem.
+- The standard group bonus is divided by the number of participating members
+  *before* Paragon eligibility is checked: 1 = 100%, 2 = 50%, 3 = 38.87%,
+  4 = 32.5%, 5 = 28%. If only one real level-80 player in a five-member party
+  is eligible, that player receives 28%; the four rejected shares are not
+  redistributed.
+- Dead players do not receive Paragon XP. Playerbots count as participating
+  group members but never receive it, because progression is account-wide for
+  real players.
 
 ---
 
@@ -175,17 +178,17 @@ Related config changes:
 
 ## Implementation map (brief)
 
-All pieces are drop-in files under `paragon/modules/` using the existing
-Mediator surface — no upstream file edits:
+The progression logic remains under `paragon/modules/`. Exact creature values
+and reward attribution use the required ALE additions carried by
+`patches/05-mod-ale.patch`:
 
 | Piece | Mechanism |
 |---|---|
-| At-level creature/quest values | `OnExperienceCalculated` — replace the config-lookup value with the formula result |
-| Boss overrides | existing `paragon_config_experience_creature` table (already consulted first) |
+| At-level creature/quest values | ALE `Creature:GetAtLevelXPReward()` for kills; generated QuestXP data for quests |
 | Achievement points scaling | `OnBeforeUpdatePlayerExperience` for achievement source |
 | Level-80 gate | existing `MINIMUM_LEVEL_FOR_PARAGON_XP` config |
 | Pre-80 banking | `banked_experience` column on the paragon character table; achievement hook accrues to it below 80; level-80 event pays it out through the normal XP pipeline |
-| Party credit | kill-event module mirroring core group-XP distribution (split, group bonus, range/alive rules) |
+| Party credit | ALE event 75, forwarded from `OnPlayerRewardKillRewarder`, once per core-credited recipient |
 | Curve | recompute next-level cost on `OnParagonLevelChanged` via `SetExperienceForNextLevel` |
 
 ## Open decisions
@@ -193,7 +196,7 @@ Mediator surface — no upstream file edits:
 1. ~~Level-80 start~~ — resolved: pre-80 banking of one-time rewards
    (achievements for now). Remaining sub-question: retroactive audit for
    already-earned achievements / existing 80s.
-2. Bot exclusion toggle: yes/no.
-3. ~~Party share~~ — resolved: mirror regular kill-XP distribution rules.
-4. Curve constants after anchor discussion (r₀, k, boss override scale —
-   remembering overrides are pre-split pool values).
+2. ~~Bot exclusion~~ — resolved: bots count in the group divisor but do not receive account-wide Paragon XP.
+3. ~~Party share~~ — resolved: use the standard party/raid group-rate schedule,
+   counting participants before Paragon eligibility and splitting equally.
+4. Curve constants after anchor discussion (r₀, k).

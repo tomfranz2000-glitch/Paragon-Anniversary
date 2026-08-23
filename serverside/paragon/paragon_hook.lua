@@ -222,6 +222,11 @@ local function UpdatePlayerExperience(player, paragon, source_type, entry)
         defaults = { specific_experience },
     })
 
+    specific_experience = tonumber(specific_experience)
+    if not specific_experience or specific_experience <= 0 then
+        return false
+    end
+
     -- Process experience gain through Mediator (triggers level-ups)
     paragon = Mediator.On("OnUpdatePlayerExperience", {
         arguments = { player, paragon, specific_experience },
@@ -670,13 +675,16 @@ end
 --- configured with experience rewards.
 ---
 --- Mediator Events:
---- - OnBeforeCreatureExperience: (player, creature, paragon) - allows modification before award
+--- - OnBeforeCreatureExperience: (player, creature, paragon, participantCount, isRaid)
 ---
---- @param event The event ID (7 = PLAYER_EVENT_ON_KILL_CREATURE)
---- @param player The player object that killed the creature
+--- @param event The event ID (75 = PLAYER_EVENT_ON_KILL_REWARD)
+--- @param player A player credited by AzerothCore's KillRewarder
 --- @param creature The creature object that was killed
+--- @param isDungeon Whether the kill occurred in a dungeon
+--- @param participantCount Alive group participants counted before Paragon eligibility
+--- @param isRaid Whether the standard raid group rate applies
 ---
-function Hook.OnPlayerKillCreature(event, player, creature)
+function Hook.OnPlayerKillReward(event, player, creature, isDungeon, participantCount, isRaid)
     if not player or not creature then
         return
     end
@@ -688,11 +696,17 @@ function Hook.OnPlayerKillCreature(event, player, creature)
 
     -- Allow modules to intercept creature experience gain
     paragon = Mediator.On("OnBeforeCreatureExperience", {
-        arguments = { player, creature, paragon },
+        arguments = { player, creature, paragon, participantCount, isRaid },
         defaults = { paragon },
     })
 
-    UpdatePlayerExperience(player, paragon, EXPERIENCE_SOURCE.CREATURE, creature:GetEntry())
+    if UpdatePlayerExperience(player, paragon, EXPERIENCE_SOURCE.CREATURE, creature:GetEntry()) then
+        -- Lets the native-drop module anchor this recipient's completed gain
+        -- without relying on player-event handler registration order.
+        Mediator.On("OnAfterCreatureExperienceAwarded", {
+            arguments = { player, creature },
+        })
+    end
 end
 
 ---
@@ -881,7 +895,6 @@ end
 RegisterPlayerEvent(2, Hook.OnCharacterDelete)
 RegisterPlayerEvent(3, Hook.OnPlayerLogin)
 RegisterPlayerEvent(4, Hook.OnPlayerLogout)
-RegisterPlayerEvent(7, Hook.OnPlayerKillCreature)
 RegisterPlayerEvent(42, Hook.OnPlayerCommand)
 RegisterPlayerEvent(45, Hook.OnPlayerAchievementComplete)
 RegisterPlayerEvent(54, Hook.OnPlayerQuestComplete)

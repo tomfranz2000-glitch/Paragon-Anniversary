@@ -34,10 +34,11 @@ directory matches `mod-ale`; under the default name the build discovers the
 sources but omits the Lua headers and `lualib`, then fails at `lua.h`.
 
 The server Lua will not load on stock `mod-eluna`. `05-mod-ale.patch` adds the
-`PLAYER_EVENT_ON_CAN_LEARN_TALENT` (74) and `MAP_EVENT_ON_ENCOUNTER_COMPLETE`
-(36) hooks, an `IsPlayerBot` method, and widens `ItemMethods` to the full
-enchantment-slot range. It is Paragon-exclusive, which is why it lives here as
-a patch rather than as its own fork.
+`PLAYER_EVENT_ON_CAN_LEARN_TALENT` (74), `PLAYER_EVENT_ON_KILL_REWARD` (75),
+and `MAP_EVENT_ON_ENCOUNTER_COMPLETE` (36) hooks; the
+`Creature:GetAtLevelXPReward()` and `Player:IsPlayerBot()` methods; and widens
+`ItemMethods` to the full enchantment-slot range. It is Paragon-exclusive,
+which is why it lives here as a patch rather than as its own fork.
 
 Paragon also depends on mod-ale's `ObjectVariables.ext`, which defines
 `SetData` and `GetData`. CMake installing the extension is not sufficient for

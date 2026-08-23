@@ -614,13 +614,15 @@ These hooks are triggered for specific experience sources:
 ### OnBeforeCreatureExperience
 
 **Phase:** Pre-Processing
-**Source:** `paragon_hook.lua` → `Hook.OnPlayerKillCreature()`
+**Source:** `paragon_hook.lua` → `Hook.OnPlayerKillReward()`
 
 **Parameters:**
 ```lua
 player    -- The player object
 creature  -- The creature object that was killed
 paragon   -- The paragon instance
+participantCount -- Alive, in-range group members counted before Paragon eligibility
+isRaid    -- Whether the standard raid sharing rule applies
 ```
 
 **Return Value:**
@@ -629,7 +631,27 @@ paragon  -- Modified or original paragon instance
 ```
 
 **Description:**
-Triggered before creature experience is awarded. Allows modification based on creature properties.
+Triggered once per recipient credited by AzerothCore's `KillRewarder`, before
+creature experience is awarded. Allows modification based on creature and
+native group-credit properties.
+
+---
+
+### OnAfterCreatureExperienceAwarded
+
+**Phase:** Post-Processing
+**Source:** `paragon_hook.lua` → `Hook.OnPlayerKillReward()`
+
+**Parameters:**
+```lua
+player    -- The credited player
+creature  -- The creature whose positive Paragon XP award completed
+```
+
+**Description:**
+Triggered only after a positive creature award has completed the full
+experience/state-sync pipeline. The XP-drop module uses it to anchor the native
+XP packet to the slain creature without relying on player-event handler order.
 
 ---
 

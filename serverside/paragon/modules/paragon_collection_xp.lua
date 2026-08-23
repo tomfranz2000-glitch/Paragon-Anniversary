@@ -22,9 +22,9 @@
     ACHIEVEMENT experience is deliberately excluded (one-time rewards stay
     flat — user spec); QUEST experience likewise since the 2026-08-18 nerf
     pass (quests grant their full base XP flat, no multipliers). The
-    banked pre-80 achievement payout bypasses the event (stays flat), and
-    party kill shares bypass it too — paragon_rework_party.lua applies
-    ParagonCollectionXP_Factor per recipient itself.
+    banked pre-80 achievement payout bypasses the event (stays flat). Creature
+    kill shares use the same OnExperienceCalculated path, so every personal XP
+    bonus is applied after the native group share is calculated.
 
     Supersedes paragon_mount_xp.lua (milestone 300's original home).
 ]]
@@ -74,8 +74,8 @@ local function Counts(player)
 end
 
 --- 1.0 when nothing is entitled, else 1 + the sum of unlocked collection
---- bonuses. Global: the party share patch in paragon_rework_party.lua
---- applies it per recipient.
+--- bonuses. The OnExperienceCalculated subscriber below applies it after each
+--- recipient's native group share has been selected.
 function ParagonCollectionXP_Factor(player, paragon)
     if not player or not paragon then
         return 1.0

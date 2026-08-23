@@ -1,8 +1,20 @@
 diff --git a/src/ALE_SC.cpp b/src/ALE_SC.cpp
-index d8886ce..be8fcd1 100644
+index d8886ce..039636e 100644
 --- a/src/ALE_SC.cpp
 +++ b/src/ALE_SC.cpp
-@@ -302,6 +302,24 @@ public:
+@@ -17,8 +17,11 @@
+ 
+ #include "Chat.h"
+ #include "ALEEventMgr.h"
++#include "Group.h"
++#include "KillRewarder.h"
+ #include "Log.h"
+ #include "LuaEngine.h"
++#include "Map.h"
+ #include "Pet.h"
+ #include "Player.h"
+ #include "ScriptMgr.h"
+@@ -302,6 +305,24 @@ public:
      }
  };
  
@@ -27,7 +39,15 @@ index d8886ce..be8fcd1 100644
  class ALE_AuctionHouseScript : public AuctionHouseScript
  {
  public:
-@@ -638,6 +656,7 @@ public:
+@@ -610,6 +631,7 @@ public:
+         PLAYERHOOK_ON_TALENTS_RESET,
+         PLAYERHOOK_ON_MONEY_CHANGED,
+         PLAYERHOOK_ON_GIVE_EXP,
++        PLAYERHOOK_ON_REWARD_KILL_REWARDER,
+         PLAYERHOOK_ON_REPUTATION_CHANGE,
+         PLAYERHOOK_ON_DUEL_REQUEST,
+         PLAYERHOOK_ON_DUEL_START,
+@@ -638,6 +660,7 @@ public:
          PLAYERHOOK_ON_STORE_NEW_ITEM,
          PLAYERHOOK_ON_PLAYER_COMPLETE_QUEST,
          PLAYERHOOK_CAN_GROUP_INVITE,
@@ -35,7 +55,43 @@ index d8886ce..be8fcd1 100644
          PLAYERHOOK_ON_BATTLEGROUND_DESERTION,
          PLAYERHOOK_ON_CREATURE_KILLED_BY_PET,
          PLAYERHOOK_ON_CAN_UPDATE_SKILL,
-@@ -932,6 +951,11 @@ public:
+@@ -792,6 +815,35 @@ public:
+         sALE->OnGiveXP(player, amount, victim, xpSource);
+     }
+ 
++    void OnPlayerRewardKillRewarder(Player* player, KillRewarder* rewarder, bool isDungeon, float& /*rate*/) override
++    {
++        if (rewarder)
++            if (Unit* victim = rewarder->GetVictim())
++                if (Creature* creature = victim->ToCreature())
++                {
++                    uint32 participantCount = 1;
++                    bool isRaid = false;
++                    Player* killer = rewarder->GetKiller();
++                    if (killer && killer->GetVehicle())
++                        return;
++
++                    Group* group = killer ? killer->GetGroup() : nullptr;
++                    if (group)
++                    {
++                        participantCount = 0;
++                        for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
++                            if (Player* member = itr->GetSource())
++                                if (member->IsAlive() &&
++                                    (member == killer || member->IsAtGroupRewardDistance(creature)))
++                                    ++participantCount;
++
++                        isRaid = creature->GetMap()->IsRaid() && group->isRaidGroup();
++                    }
++
++                    sALE->OnKillReward(player, creature, isDungeon, participantCount, isRaid);
++                }
++    }
++
+     bool OnPlayerReputationChange(Player* player, uint32 factionID, int32& standing, bool incremental) override
+     {
+         return sALE->OnReputationChange(player, factionID, standing, incremental);
+@@ -932,6 +984,11 @@ public:
          return sALE->OnCanGroupInvite(player, memberName);
      }
  
@@ -47,7 +103,7 @@ index d8886ce..be8fcd1 100644
      void OnPlayerBattlegroundDesertion(Player* player, const BattlegroundDesertionType type) override
      {
          sALE->OnBattlegroundDesertion(player, type);
-@@ -1348,6 +1372,7 @@ void AddSC_ALE()
+@@ -1348,6 +1405,7 @@ void AddSC_ALE()
      new ALE_AllItemScript();
      new ALE_AllMapScript();
      new ALE_AuctionHouseScript();
@@ -56,7 +112,7 @@ index d8886ce..be8fcd1 100644
      new ALE_CommandSC();
      new ALE_ALEScript();
 diff --git a/src/LuaEngine/Hooks.h b/src/LuaEngine/Hooks.h
-index f83dd99..9c250cb 100644
+index f83dd99..00e9405 100644
 --- a/src/LuaEngine/Hooks.h
 +++ b/src/LuaEngine/Hooks.h
 @@ -158,6 +158,11 @@ namespace Hooks
@@ -71,19 +127,29 @@ index f83dd99..9c250cb 100644
          SERVER_EVENT_COUNT
      };
  
-@@ -238,6 +243,7 @@ namespace Hooks
+@@ -238,6 +243,9 @@ namespace Hooks
          PLAYER_EVENT_ON_MODIFY_HEAL_RECEIVED                =     71,       // (event, player, target, heal, spellInfo) - Can return new heal amount
          PLAYER_EVENT_ON_DEAL_DAMAGE                         =     72,       // (event, player, target, damage, damagetype) - Can return new damage amount
          PLAYER_EVENT_ON_RELEASED_GHOST                      =     73,       // (event, player)
 +        PLAYER_EVENT_ON_CAN_LEARN_TALENT                    =     74,       // (event, player, talentId, rank) - Can return false to prevent learning
++        // (event, player, creature, isDungeon, participantCount, isRaid)
++        PLAYER_EVENT_ON_KILL_REWARD                         =     75,
  
          PLAYER_EVENT_COUNT
      };
 diff --git a/src/LuaEngine/LuaEngine.h b/src/LuaEngine/LuaEngine.h
-index a21640d..3f55a41 100644
+index a21640d..a29738a 100644
 --- a/src/LuaEngine/LuaEngine.h
 +++ b/src/LuaEngine/LuaEngine.h
-@@ -495,6 +495,7 @@ public:
+@@ -466,6 +466,7 @@ public:
+     void OnTalentsReset(Player* pPlayer, bool noCost);
+     void OnMoneyChanged(Player* pPlayer, int32& amount);
+     void OnGiveXP(Player* pPlayer, uint32& amount, Unit* pVictim, uint8 xpSource);
++    void OnKillReward(Player* pPlayer, Creature* pCreature, bool isDungeon, uint32 participantCount, bool isRaid);
+     bool OnReputationChange(Player* pPlayer, uint32 factionID, int32& standing, bool incremental);
+     void OnDuelRequest(Player* pTarget, Player* pChallenger);
+     void OnDuelStart(Player* pStarter, Player* pChallenger);
+@@ -495,6 +496,7 @@ public:
      bool OnCanSendMail(Player* player, ObjectGuid receiverGuid, ObjectGuid mailbox, std::string& subject, std::string& body, uint32 money, uint32 cod, Item* item);
      bool OnCanJoinLfg(Player* player, uint8 roles, lfg::LfgDungeonSet& dungeons, const std::string& comment);
      bool OnCanGroupInvite(Player* player, std::string& memberName);
@@ -91,7 +157,7 @@ index a21640d..3f55a41 100644
      void OnGroupRollRewardItem(Player* player, Item* item, uint32 count, RollVote voteType, Roll* roll);
      void OnBattlegroundDesertion(Player* player, const BattlegroundDesertionType type);
      void OnCreatureKilledByPet(Player* player, Creature* killed);
-@@ -560,6 +561,7 @@ public:
+@@ -560,6 +562,7 @@ public:
      void OnPlayerEnter(Map* map, Player* player);
      void OnPlayerLeave(Map* map, Player* player);
      void OnUpdate(Map* map, uint32 diff);
@@ -100,7 +166,7 @@ index a21640d..3f55a41 100644
      void OnRemoveFromWorld(Creature* creature);
      void OnAddToWorld(GameObject* gameobject);
 diff --git a/src/LuaEngine/LuaFunctions.cpp b/src/LuaEngine/LuaFunctions.cpp
-index c0acc01..5d3e29d 100644
+index c0acc01..6c1f949 100644
 --- a/src/LuaEngine/LuaFunctions.cpp
 +++ b/src/LuaEngine/LuaFunctions.cpp
 @@ -634,6 +634,7 @@ ALERegister<Player> PlayerMethods[] =
@@ -111,11 +177,37 @@ index c0acc01..5d3e29d 100644
      { "IsImmuneToDamage", &LuaPlayer::IsImmuneToDamage },
      { "IsAlliance", &LuaPlayer::IsAlliance },
      { "IsHorde", &LuaPlayer::IsHorde },
+@@ -868,6 +869,7 @@ ALERegister<Creature> CreatureMethods[] =
+     { "GetSpawnId", &LuaCreature::GetSpawnId },
+     { "GetWaypointPath", &LuaCreature::GetWaypointPath },
+     { "GetLootMode", &LuaCreature::GetLootMode },
++    { "GetAtLevelXPReward", &LuaCreature::GetAtLevelXPReward },
+     { "GetLootRecipient", &LuaCreature::GetLootRecipient },
+     { "GetLootRecipientGroup", &LuaCreature::GetLootRecipientGroup },
+     { "GetNPCFlags", &LuaCreature::GetNPCFlags },
 diff --git a/src/LuaEngine/hooks/PlayerHooks.cpp b/src/LuaEngine/hooks/PlayerHooks.cpp
-index 7649274..58b4653 100644
+index 7649274..890bea5 100644
 --- a/src/LuaEngine/hooks/PlayerHooks.cpp
 +++ b/src/LuaEngine/hooks/PlayerHooks.cpp
-@@ -680,6 +680,17 @@ bool ALE::OnCanGroupInvite(Player* player, std::string& memberName)
+@@ -254,6 +254,17 @@ void ALE::OnGiveXP(Player* pPlayer, uint32& amount, Unit* pVictim, uint8 xpSourc
+     CleanUpStack(4);
+ }
+ 
++void ALE::OnKillReward(Player* pPlayer, Creature* pCreature, bool isDungeon, uint32 participantCount, bool isRaid)
++{
++    START_HOOK(PLAYER_EVENT_ON_KILL_REWARD);
++    Push(pPlayer);
++    Push(pCreature);
++    Push(isDungeon);
++    Push(participantCount);
++    Push(isRaid);
++    CallAllFunctions(PlayerEventBindings, key);
++}
++
+ bool ALE::OnReputationChange(Player* pPlayer, uint32 factionID, int32& standing, bool incremental)
+ {
+     START_HOOK_WITH_RETVAL(PLAYER_EVENT_ON_REPUTATION_CHANGE, true);
+@@ -680,6 +691,17 @@ bool ALE::OnCanGroupInvite(Player* player, std::string& memberName)
      return CallAllFunctionsBool(PlayerEventBindings, key);
  }
  
@@ -161,8 +253,72 @@ index f305c97..c319045 100644
  void ALE::OnRemove(GameObject* gameobject)
  {
      START_HOOK(WORLD_EVENT_ON_DELETE_GAMEOBJECT);
+diff --git a/src/LuaEngine/methods/CreatureMethods.h b/src/LuaEngine/methods/CreatureMethods.h
+index fc8833d..337fed2 100644
+--- a/src/LuaEngine/methods/CreatureMethods.h
++++ b/src/LuaEngine/methods/CreatureMethods.h
+@@ -7,6 +7,10 @@
+ #ifndef CREATUREMETHODS_H
+ #define CREATUREMETHODS_H
+ 
++#include "DBCStores.h"
++#include "Formulas.h"
++#include "World.h"
++
+ /***
+  * Non-[Player] controlled [Unit]s (i.e. NPCs).
+  *
+@@ -14,6 +18,48 @@
+  */
+ namespace LuaCreature
+ {
++    /**
++     * Returns the creature's authoritative kill-XP reward for a hypothetical
++     * player at the creature's level. Mirrors Acore::XP::Gain and
++     * KillRewarder's low-health adjustment while deliberately excluding
++     * player-specific group, aura, rested and level-difference modifiers.
++     *
++     * @return uint32 atLevelXPReward
++     */
++    int GetAtLevelXPReward(lua_State* L, Creature* creature)
++    {
++        uint32 gain = 0;
++
++        if (!creature->IsTotem() && !creature->IsPet() && !creature->IsCritter() &&
++            !creature->HasFlagsExtra(CREATURE_FLAG_EXTRA_NO_XP))
++        {
++            uint8 const level = creature->GetLevel();
++            gain = Acore::XP::BaseGain(
++                level,
++                level,
++                GetContentLevelsForMapAndZone(creature->GetMapId(), creature->GetZoneId()));
++
++            if (gain)
++            {
++                CreatureTemplate const* creatureTemplate = creature->GetCreatureTemplate();
++                float modifier = creature->isElite() ? 2.0f : 1.0f;
++                modifier *= creatureTemplate->ModExperience;
++                modifier *= sWorld->getRate(RATE_XP_KILL);
++
++                if (creature->GetPlayerDamageReq() && creature->GetMaxHealth())
++                    modifier *= 1.0f - 2.0f * creature->GetPlayerDamageReq() / creature->GetMaxHealth();
++
++                gain = uint32(gain * modifier);
++
++                if (creatureTemplate->ModHealth <= 0.75f && creatureTemplate->ModHealth >= 0.0f)
++                    gain = uint32(gain * creatureTemplate->ModHealth);
++            }
++        }
++
++        ALE::Push(L, gain);
++        return 1;
++    }
++
+     /**
+      * Returns `true` if the [Creature] can regenerate health,
+      *   and returns `false` otherwise.
 diff --git a/src/LuaEngine/methods/GlobalMethods.h b/src/LuaEngine/methods/GlobalMethods.h
-index cebb7bc..75972e5 100644
+index cebb7bc..3483db2 100644
 --- a/src/LuaEngine/methods/GlobalMethods.h
 +++ b/src/LuaEngine/methods/GlobalMethods.h
 @@ -697,6 +697,9 @@ namespace LuaGlobalFunctions
@@ -175,11 +331,13 @@ index cebb7bc..75972e5 100644
       *     };
       *
       * @proto cancel = (event, function)
-@@ -794,6 +797,7 @@ namespace LuaGlobalFunctions
+@@ -794,6 +797,9 @@ namespace LuaGlobalFunctions
       *     PLAYER_EVENT_ON_MODIFY_HEAL_RECEIVED                 =     71,       // (event, player, target, heal, spellInfo) - Can return new heal amount
       *     PLAYER_EVENT_ON_DEAL_DAMAGE                          =     72,       // (event, player, target, damage, damagetype) - Can return new damage amount
       *     PLAYER_EVENT_ON_RELEASED_GHOST                       =     73,       // (event, player)
 +     *     PLAYER_EVENT_ON_CAN_LEARN_TALENT                     =     74,       // (event, player, talentId, rank) - Can return false to prevent learning
++     *     // (event, player, creature, isDungeon, participantCount, isRaid)
++     *     PLAYER_EVENT_ON_KILL_REWARD                          =     75,
       * };
       * </pre>
       *

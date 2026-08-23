@@ -12,14 +12,11 @@
     (0 = none), uint32 total xp, uint8 type (0 kill / 1 non-kill), kill
     only: uint32 raw xp + float group rate, uint8 RAF flag.
 
-    Anchoring relies on load order: paragon_hook.lua registers its kill
-    handler (player event 7) BEFORE this module (root file loads first),
-    so ours runs AFTER the whole gain pipeline for that kill. The gain
-    handler therefore only records a pending drop; our event-7 handler
-    sends it anchored to the actual creature, and a 50ms fallback timer
-    flushes non-kill gains (quests, achievements, skills, banking) as the
-    victimless packet shape. If the order ever flips, kills degrade to
-    the victimless shape — never a wrong anchor.
+    The gain handler records a pending drop. Creature awards then raise the
+    OnAfterCreatureExperienceAwarded mediator event, which anchors the packet
+    to the victim without depending on Lua file or player-handler load order.
+    A 50ms fallback timer flushes non-kill gains (quests, achievements, skills,
+    banking) as the victimless packet shape.
 ]]
 
 local OPCODE_LOG_XPGAIN = 0x1D0
@@ -104,9 +101,7 @@ RegisterMediatorEvent("OnAfterUpdatePlayerExperience", function(player, paragon)
     end
 end)
 
--- runs after paragon_hook's own kill handler: the pending drop recorded
--- above belongs to this kill, so anchor it to the creature
-RegisterPlayerEvent(7, function(event, player, creature)
+RegisterMediatorEvent("OnAfterCreatureExperienceAwarded", function(player, creature)
     pcall(function()
         if not player or not creature then
             return

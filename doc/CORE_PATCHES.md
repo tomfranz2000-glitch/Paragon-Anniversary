@@ -748,6 +748,40 @@ spell crits, NOT healing crits — stock Chaotic-meta behavior); integer
 percent only, so +0.25%/clear applies as floor(clears / 4) whole percent
 (accepted design).
 
+## 1p.1. mod-ale patch — authoritative Paragon kill rewards
+
+**Files:** `modules/mod-ale/src/ALE_SC.cpp`, `LuaEngine/Hooks.h`,
+`LuaEngine.h`, `hooks/PlayerHooks.cpp`, `methods/CreatureMethods.h`,
+`methods/GlobalMethods.h`, and `LuaFunctions.cpp`. Rebuild required.
+
+ALE player event **75** (`PLAYER_EVENT_ON_KILL_REWARD`) forwards the core's
+`PlayerScript::OnPlayerRewardKillRewarder` once per credited recipient as
+`(player, creature, isDungeon, participantCount, isRaid)`. Unlike player kill
+events 7 and 58, the rewarder has already resolved the tag/loot-recipient group
+and therefore covers direct players, altbots, pets, totems, guardians, and
+charmed units. It also runs before the native-XP nonzero check, which is
+required for the custom 50% reward from gray mobs.
+
+`participantCount` is the core's living, in-range group count and is
+intentionally taken before Paragon eligibility: one eligible human with four
+participating altbots receives 28%, not 100%. Lua derives the standard party or
+raid share from this integer instead of accepting a pre-divided C++ float; that
+preserves exact boundaries such as 1000 × 1.3 / 4 = 325. The hook's existing
+`rate` argument is not used because it weights shares by character level.
+
+`Creature:GetAtLevelXPReward()` mirrors `Acore::XP::Gain` with the hypothetical
+player level fixed to the creature level, followed by KillRewarder's low-health
+adjustment. It includes map content tier, elite status, `ExperienceModifier`,
+`HealthModifier`, `Rate.XP.Kill`, partial player-damage scaling, and native
+pet/totem/critter/no-XP exclusions. Player-specific ordinary-XP auras are not
+included; the recipient's Paragon XP factor is applied later in Lua.
+
+The Lua consumer is `paragon_rework_party.lua`; it routes every event-75 award
+through `paragon_hook.lua`'s complete mediator/state-sync path. Creature XP
+drops are anchored by `OnAfterCreatureExperienceAwarded`, removing the former
+event-handler load-order dependency. The old event-7 self/party XP paths are
+gone, so each credited player receives exactly one award.
+
 ## 1q. C++ patch — lockpicking before the Death Knight branch (Codex node 56, universal)
 
 `Player::LearnDefaultSkill`, `SKILL_RANGE_LEVEL` case
@@ -1401,8 +1435,9 @@ in-source):
   `OnPlayerLogout` — a bot's logout must never `Save()`: with account mode
   its stale level/XP copy would OVERWRITE the row the real player advanced.
   This is the data-loss trap in the stock account mode.
-- **paragon_rework_party.lua**: bot gate in `GrantShare` (that path raises
-  the mediator directly, bypassing the hook's gates).
+- **paragon_rework_party.lua**: consumes authoritative reward event 75 and
+  delegates to the normal hook pipeline; the hook's bot gate is therefore the
+  single award gate for both solo and group kills.
 - **paragon_account_gate.lua** (new module): sub-80 characters get NO
   benefits — forces the statistics apply-pass to a remove-pass and blanks
   client point-spend requests via the two OnBefore mediator events. The
@@ -1514,9 +1549,8 @@ per the codex convention.
 **Hot-path note:** `PLAYER_EVENT_ON_KILL_CREATURE` fires for every kill by
 every player, and this realm runs ~2500 bots — so the handler is ordered
 cheapest-first, with the rank check rejecting ~99.9% of kills before any
-bot test or DB touch. The event was already consumed by
-`paragon_exp_drops.lua` and `paragon_rework_party.lua`, so this adds a
-handler to an already-live dispatch rather than a new cost class.
+bot test or DB touch. General creature XP and its visual drop now use rewarder
+event 75; event 7 remains here only for the separate rare-hunter feature.
 
 ## 2g. Brand-new talent — "Sudden Light", milestone 1325 (no core patch)
 
