@@ -270,6 +270,10 @@ end
 local function EnsureTicker(player)
     local guid = player:GetGUIDLow()
     if not tickers[guid] then
+        -- Reconcile once for every eligible session.  mod-transmog can add
+        -- rows during its login sweep, and a prior session may have ended
+        -- before this ticker consumed its dirty flag.
+        player:SetData(DIRTY_KEY, true)
         tickers[guid] = player:RegisterEvent(OnTick, TICK_MS, 0)
     end
 end

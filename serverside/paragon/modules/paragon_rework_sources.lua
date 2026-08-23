@@ -18,8 +18,10 @@
     deliberately ignored: kill XP must always reflect the creature's actual
     native reward characteristics.
 
-    Data dependencies (generated from client DBCs):
-      ParagonReworkData_QuestXP, ParagonReworkData_AchievementPoints
+    Data dependencies:
+      - generated client-DBC maps for quest XP and stock achievement points;
+      - acore_world.achievement_dbc for custom achievement points not present
+        in the stock map.
 ]]
 
 local Config = require("paragon_config")
@@ -87,7 +89,32 @@ local function GroupShare(recipient, creature)
     return StandardGroupShare(participant_count, is_raid)
 end
 
---- Achievement value: DB override wins, else points x multiplier.
+-- Unknown achievement ids are custom/server DBC rows. Cache both hits and
+-- misses so their authoritative world-DB points cost at most one query per
+-- achievement id for the lifetime of the Lua state.
+local achievement_points_cache = {}
+
+local function AchievementPoints(achievement_id)
+    local points = ParagonReworkData_AchievementPoints
+        and ParagonReworkData_AchievementPoints[achievement_id]
+    if points ~= nil then
+        return points
+    end
+
+    points = achievement_points_cache[achievement_id]
+    if points ~= nil then
+        return points
+    end
+
+    local result = WorldDBQuery(
+        "SELECT Points FROM achievement_dbc WHERE ID = " .. achievement_id .. " LIMIT 1")
+    points = result and result:GetUInt32(0) or 0
+    achievement_points_cache[achievement_id] = points
+    return points
+end
+
+--- Achievement value: explicit XP override wins, then the committed stock
+--- points map, then a cached lookup of custom achievement DBC rows.
 --- Global: also used by the banking module.
 function ParagonRework_AchievementValue(achievement_id)
     local override = db_overrides.achievement[achievement_id]
@@ -95,8 +122,7 @@ function ParagonRework_AchievementValue(achievement_id)
         return override
     end
 
-    local points = ParagonReworkData_AchievementPoints
-        and ParagonReworkData_AchievementPoints[achievement_id] or 0
+    local points = AchievementPoints(achievement_id)
     local per_point = tonumber(Config:GetByField("PARAGON_ACHIEVEMENT_POINT_XP")) or 1000
     return points * per_point
 end
