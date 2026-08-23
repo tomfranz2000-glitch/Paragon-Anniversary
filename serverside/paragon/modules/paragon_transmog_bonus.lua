@@ -297,7 +297,7 @@ end)
 -- ============================================================================
 
 -- 53 = PLAYER_EVENT_ON_STORE_NEW_ITEM, 29 = PLAYER_EVENT_ON_EQUIP: the
--- same beats mod-transmog unlocks appearances on (its wintermute
+-- same beats mod-transmog unlocks appearances on (the suite fork's
 -- store-new-item patch makes 53 the catch-all acquisition path)
 for _, eventId in ipairs({ 53, 29 }) do
     RegisterPlayerEvent(eventId, function(event, player)

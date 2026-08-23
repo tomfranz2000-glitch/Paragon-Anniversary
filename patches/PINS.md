@@ -8,6 +8,27 @@
 | `06-AccountBound.patch` | `github.com/AlsoNotMehh/AccountBound` | `f7ba75b14bdf04f4a4e711f0b6f71a0589ea4649` |
 
 This fork itself is based on `Grim-Batol/Paragon-Anniversary` @ `a3cb1bb5d9b3983154b9e7a71459b199fcea0d9f`.
+Its sole authoritative install branch is `main` at
+`github.com/tomfranz2000-glitch/Paragon-Anniversary`; do not assemble a release
+from a feature or historical branch.
+
+## Required module pin
+
+| module | authoritative branch | required commit | reason |
+|---|---|---|---|
+| `github.com/tomfranz2000-glitch/mod-transmog` | `master` | `31633595cad7b12042b6484ffe3ea34f355b9821` | Includes `StoreNewItem` appearance capture and the required transmog configuration defaults. |
+
+Clone the fork, not stock `azerothcore/mod-transmog`, and detach at the tested
+revision:
+
+```bash
+cd /path/to/azerothcore
+git clone --branch master --single-branch \
+    https://github.com/tomfranz2000-glitch/mod-transmog.git \
+    modules/mod-transmog
+git -C modules/mod-transmog checkout --detach \
+    31633595cad7b12042b6484ffe3ea34f355b9821
+```
 
 ## !! `01-core-paragon.patch` TOUCHES 13 FILES, AND ONE CARRIES NO MARKER !!
 

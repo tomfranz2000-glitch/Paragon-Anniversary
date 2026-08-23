@@ -31,7 +31,7 @@ ___
 |-----------|--------|-------|
 | **Serverside** | ⚙️ **Beta** | All core features complete, dual-mode system fully implemented, stabilization in progress |
 | **Clientside** | ✅ **Feature complete** | Full 27-file addon, 14 UI-art assets, and generated DBC archives |
-| **Documentation** | 🛠️ **Stabilizing** | Branch-specific install and implementation guides |
+| **Documentation** | 🛠️ **Stabilizing** | Main-branch install and implementation guides |
 
 ---
 
@@ -132,6 +132,34 @@ Configure `LEVEL_LINKED_TO_ACCOUNT` in `paragon_config`:
 ---
 
 ## 🚀 Quick Installation
+
+### Authoritative source
+
+The sole authoritative install branch is **`main`**. Clone it explicitly so a
+fresh installation cannot silently select a historical or development branch:
+
+```bash
+git clone --branch main --single-branch \
+    https://github.com/tomfranz2000-glitch/Paragon-Anniversary.git
+cd Paragon-Anniversary
+```
+
+Paragon's appearance rewards require the suite's `mod-transmog` fork. Clone
+its authoritative `master` branch under the AzerothCore `modules` directory,
+then detach at the tested commit:
+
+```bash
+cd /path/to/azerothcore
+git clone --branch master --single-branch \
+    https://github.com/tomfranz2000-glitch/mod-transmog.git \
+    modules/mod-transmog
+git -C modules/mod-transmog checkout --detach \
+    31633595cad7b12042b6484ffe3ea34f355b9821
+```
+
+That exact revision supplies the required `StoreNewItem` appearance capture
+and the server's transmog configuration defaults. Do not substitute upstream
+`azerothcore/mod-transmog` or an unpinned fork revision.
 
 ### Required order
 

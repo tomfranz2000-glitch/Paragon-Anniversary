@@ -1,9 +1,14 @@
 # Paragon Anniversary — Complete Installation Guide
 
-This guide applies to the `wintermute` branch of this repository. It replaces
-the generic upstream instructions: this fork requires core/module patches,
-database migrations, generated server content, three client patch files, and
-the complete addon.
+The sole authoritative install branch is `main`. Clone it explicitly; this
+fork requires core/module patches, database migrations, generated server
+content, three client patch files, and the complete addon.
+
+```bash
+git clone --branch main --single-branch \
+    https://github.com/tomfranz2000-glitch/Paragon-Anniversary.git
+cd Paragon-Anniversary
+```
 
 Do not start the worldserver until the server SQL, generated content, Lua
 scripts, and ALE extensions are all installed. The database container may run
@@ -36,7 +41,8 @@ Required software and data:
 - A clean enUS World of Warcraft 3.3.5a client
 - The playerbot AzerothCore fork and commits recorded in
   [`patches/PINS.md`](../patches/PINS.md)
-- `mod-ale`, `mod-transmog`, and their own prerequisites
+- `mod-ale` and the pinned `tomfranz2000-glitch/mod-transmog` fork described
+  below, plus their own prerequisites
 - `mod-collections` when collection XP should include account-wide mounts and
   companions; without it those awards remain zero
 
@@ -80,6 +86,46 @@ git clone https://github.com/azerothcore/mod-eluna.git modules/mod-ale
 The default target `modules/mod-eluna` is wrong for this core. Module discovery
 finds it, but `modules/CMakeLists.txt` skips `ConfigureALEModule`, so the build
 fails later with `fatal error: 'lua.h' file not found`.
+
+### Required mod-transmog fork
+
+Paragon reads the appearance collection maintained by the suite's fork of
+`mod-transmog`. Clone its authoritative default branch, `master`, and pin the
+tested revision before configuring AzerothCore:
+
+```bash
+cd /path/to/azerothcore
+git clone --branch master --single-branch \
+    https://github.com/tomfranz2000-glitch/mod-transmog.git \
+    modules/mod-transmog
+git -C modules/mod-transmog checkout --detach \
+    31633595cad7b12042b6484ffe3ea34f355b9821
+git -C modules/mod-transmog rev-parse HEAD
+```
+
+The final command must print
+`31633595cad7b12042b6484ffe3ea34f355b9821`. That revision includes the
+required `StoreNewItem` appearance capture and the realm's transmog
+configuration defaults. Stock `azerothcore/mod-transmog` and unpinned fork
+revisions are not supported installation sources.
+
+Build/install the module, then create or update the active `transmog.conf`
+from that pinned revision's `conf/transmog.conf.dist`. Verify these values in
+the file the worldserver actually loads; an older retained configuration does
+not inherit updated `.dist` values automatically:
+
+```ini
+Transmogrification.UseCollectionSystem = 1
+Transmogrification.TrackUnusableItems = 1
+Transmogrification.AllowPoor = 1
+Transmogrification.AllowCommon = 1
+Transmogrification.AllowTradeable = 1
+Transmogrification.AllowMixedArmorTypes = 1
+```
+
+The first two settings make the appearance ledger available to Paragon. The
+remaining settings reproduce this realm's collection scope, including poor,
+common, tradeable, and mixed-armor appearances.
 
 ### Patch targets
 
@@ -353,13 +399,18 @@ SELECT ID, Name_Lang_enUS, Mask_ID
 FROM acore_world.chartitles_dbc
 WHERE ID IN (200, 201)
 ORDER BY ID;
+SELECT COUNT(*) AS solo_achievements, SUM(Points) AS solo_points
+FROM acore_world.achievement_dbc
+WHERE ID BETWEEN 19000 AND 19304;
 SELECT COUNT(*) FROM acore_ale.paragon_collectible_spell_xp;
 SELECT COUNT(*) FROM acore_ale.paragon_config_experience_quest;
 ```
 
-On the current branch, the custom-spell coverage audit reports 743
+On the authoritative `main` branch, the custom-spell coverage audit reports 743
 client-generated records plus 21 deliberately server-only records. Both title
-rows must be present on a fresh host.
+rows must be present on a fresh host. The solo-achievement query must report
+96 rows and 1,045 total points; Paragon reads those authoritative world rows
+for custom achievement XP.
 
 At login, the console must not report `SetData`/`GetData` errors. A level-80
 character should earn Paragon XP from configured sources; a lower-level
@@ -423,12 +474,13 @@ the schema.
 
 ## Updating an existing installation
 
-Back up the three AzerothCore databases plus `acore_ale`, update the repository
-and pinned patches together, rerun the base SQL (it is idempotent except for
-the documented Anniversary preset), regenerate the two class intermediate
-files, rerun `paragon_client_patch.py --apply`, repopulate collection/quest XP,
-rebuild `patch-W.MPQ`, and recopy the addon. Finish with a worldserver and full
-client restart.
+Back up the three AzerothCore databases plus `acore_ale`, update Paragon's
+`main` branch and the pinned patches together, and restore `mod-transmog` to
+`31633595cad7b12042b6484ffe3ea34f355b9821`. Rerun the base SQL (it is
+idempotent except for the documented Anniversary preset), regenerate the two
+class intermediate files, rerun `paragon_client_patch.py --apply`, repopulate
+collection/quest XP, rebuild `patch-W.MPQ`, and recopy the addon. Finish with a
+worldserver and full client restart.
 
 For implementation details and hard-won compatibility notes, see
 [`doc/CORE_PATCHES.md`](CORE_PATCHES.md).

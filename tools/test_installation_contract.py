@@ -1,3 +1,5 @@
+import collections
+import csv
 import os
 import tempfile
 import unittest
@@ -7,6 +9,16 @@ from build_mpq import is_owned_archive, read_file
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PARAGON_REPOSITORY = (
+    "https://github.com/tomfranz2000-glitch/Paragon-Anniversary.git")
+TRANSMOG_REPOSITORY = (
+    "https://github.com/tomfranz2000-glitch/mod-transmog.git")
+TRANSMOG_COMMIT = "31633595cad7b12042b6484ffe3ea34f355b9821"
+
+
+def read_repository_file(*parts):
+    with open(os.path.join(ROOT, *parts), encoding="utf-8") as handle:
+        return handle.read()
 
 
 class InstallationContractTests(unittest.TestCase):
@@ -24,9 +36,8 @@ class InstallationContractTests(unittest.TestCase):
                     "%s references a private, unshipped scratchpad path"
                     % os.path.relpath(path, ROOT))
 
-    def test_branch_install_guide_names_the_real_pipeline(self):
-        with open(os.path.join(ROOT, "doc", "INSTALL.md"), encoding="utf-8") as handle:
-            guide = handle.read()
+    def test_main_install_guide_names_the_real_pipeline(self):
+        guide = read_repository_file("doc", "INSTALL.md")
         required = [
             "modules/mod-ale",
             "sql/01_create_database.sql",
@@ -38,12 +49,56 @@ class InstallationContractTests(unittest.TestCase):
             "python tools/populate_quest_paragon_xp.py",
             "python tools/build_ui_art.py",
             "Interface/AddOns/Paragon",
+            "SUM(Points) AS solo_points",
+            "96 rows and 1,045 total points",
             "patch-W.MPQ",
             "patch-X.MPQ",
             "patch-enUS-X.MPQ",
         ]
         for text in required:
             self.assertIn(text, guide)
+
+        for setting in (
+                "Transmogrification.UseCollectionSystem = 1",
+                "Transmogrification.TrackUnusableItems = 1",
+                "Transmogrification.AllowPoor = 1",
+                "Transmogrification.AllowCommon = 1",
+                "Transmogrification.AllowTradeable = 1",
+                "Transmogrification.AllowMixedArmorTypes = 1"):
+            self.assertIn(setting, guide)
+
+    def test_default_branches_and_transmog_revision_are_authoritative(self):
+        documents = {
+            "README.md": read_repository_file("README.md"),
+            "doc/INSTALL.md": read_repository_file("doc", "INSTALL.md"),
+            "doc/PROVENANCE.md": read_repository_file("doc", "PROVENANCE.md"),
+            "patches/PINS.md": read_repository_file("patches", "PINS.md"),
+        }
+
+        for name, text in documents.items():
+            self.assertIn(
+                "sole authoritative install branch", text,
+                "%s does not identify main as the only install branch" % name)
+            self.assertNotIn(
+                "wintermute", text.lower(),
+                "%s still contains obsolete install-branch guidance" % name)
+            self.assertIn(
+                "tomfranz2000-glitch/mod-transmog", text,
+                "%s does not name the required transmog fork" % name)
+            self.assertIn(
+                TRANSMOG_COMMIT, text,
+                "%s does not pin the tested transmog revision" % name)
+
+        for name in ("README.md", "doc/INSTALL.md"):
+            text = documents[name]
+            self.assertIn(PARAGON_REPOSITORY, text)
+            self.assertIn("--branch main --single-branch", text)
+
+        for name in ("README.md", "doc/INSTALL.md", "patches/PINS.md"):
+            text = documents[name]
+            self.assertIn(TRANSMOG_REPOSITORY, text)
+            self.assertIn("--branch master --single-branch", text)
+            self.assertIn("checkout --detach", text)
 
     def test_installable_payload_counts_match_the_guide(self):
         addon_root = os.path.join(
@@ -79,6 +134,39 @@ class InstallationContractTests(unittest.TestCase):
         for title_id in (200, 201):
             self.assertIn("DELETE FROM chartitles_dbc WHERE ID = %d;"
                           % title_id, generated_sql)
+
+    def test_content_sql_has_complete_solo_achievement_points(self):
+        generated_sql = read_repository_file(
+            "sql", "content", "01_paragon_content.sql")
+        points_by_id = {}
+
+        prefix = "INSERT INTO achievement_dbc ("
+        separator = ") VALUES ("
+        for line in generated_sql.splitlines():
+            if not line.startswith(prefix) or not line.endswith(");"):
+                continue
+            columns_text, values_text = line[len(prefix):-2].split(
+                separator, 1)
+            columns = [column.strip().strip("`")
+                       for column in columns_text.split(",")]
+            values = next(csv.reader(
+                [values_text], delimiter=",", quotechar="'",
+                doublequote=True, skipinitialspace=True))
+            self.assertEqual(len(columns), len(values))
+            row = dict(zip(columns, values))
+            achievement_id = int(row["ID"])
+            if 19000 <= achievement_id < 20000:
+                self.assertNotIn(
+                    achievement_id, points_by_id,
+                    "duplicate custom achievement ID %d" % achievement_id)
+                points_by_id[achievement_id] = int(row["Points"])
+
+        self.assertEqual(96, len(points_by_id))
+        self.assertTrue(all(points > 0 for points in points_by_id.values()))
+        self.assertEqual(1045, sum(points_by_id.values()))
+        self.assertEqual(
+            collections.Counter({10: 92, 25: 3, 50: 1}),
+            collections.Counter(points_by_id.values()))
 
 
 if __name__ == "__main__":
