@@ -50,6 +50,25 @@ local EXPERIENCE_SOURCE = {
     QUEST = 4
 }
 
+-- WotLK profession skill lines, matching AzerothCore's IsProfessionSkill().
+-- This intentionally excludes weapon, defense, riding, and lockpicking gains.
+local PROFESSION_SKILLS = {
+    [129] = true, -- First Aid
+    [164] = true, -- Blacksmithing
+    [165] = true, -- Leatherworking
+    [171] = true, -- Alchemy
+    [182] = true, -- Herbalism
+    [185] = true, -- Cooking
+    [186] = true, -- Mining
+    [197] = true, -- Tailoring
+    [202] = true, -- Engineering
+    [333] = true, -- Enchanting
+    [356] = true, -- Fishing
+    [393] = true, -- Skinning
+    [755] = true, -- Jewelcrafting
+    [773] = true, -- Inscription
+}
+
 -- ============================================================================
 -- PRIVATE FUNCTIONS
 -- ============================================================================
@@ -165,10 +184,16 @@ end
 --- @param paragon The paragon instance to update
 --- @param source_type The source type (EXPERIENCE_SOURCE enum)
 --- @param entry The source entry ID (creature ID, achievement ID, skill ID, or quest ID)
+--- @param reward_count Optional number of source rewards represented by this event (defaults to 1)
 --- @return boolean True if experience was awarded, false otherwise
 ---
-local function UpdatePlayerExperience(player, paragon, source_type, entry)
+local function UpdatePlayerExperience(player, paragon, source_type, entry, reward_count)
     if not player or not paragon or not source_type or not entry then
+        return false
+    end
+
+    reward_count = math.floor(tonumber(reward_count) or 1)
+    if reward_count <= 0 then
         return false
     end
 
@@ -211,10 +236,15 @@ local function UpdatePlayerExperience(player, paragon, source_type, entry)
         ["UNIVERSAL_QUEST_EXPERIENCE"] = Config:GetQuestExperience(entry)
     }
 
-    local specific_experience = source_experience_map[config_key] or universal_value
-    if not specific_experience then
+    local specific_experience = tonumber(source_experience_map[config_key] or universal_value)
+    if not specific_experience or specific_experience <= 0 then
         return false
     end
+
+    -- A multi-point profession gain represents one reward tick per actual
+    -- point. Apply source modifiers after totaling the base reward so personal
+    -- Paragon XP bonuses still compose with profession XP normally.
+    specific_experience = specific_experience * reward_count
 
     -- Allow modules to see the calculated experience before processing
     specific_experience = Mediator.On("OnExperienceCalculated", {
@@ -785,13 +815,29 @@ end
 --- @param event The event ID (62 = PLAYER_EVENT_ON_SKILL_UPDATE)
 --- @param player The player object whose skill was updated
 --- @param skill_id The skill ID that was updated
---- @param value Current skill value (unused)
+--- @param value Previous skill value
 --- @param max Maximum skill value (unused)
 --- @param step Skill step increase (unused)
---- @param new_value New skill value (unused)
+--- @param new_value New skill value
 ---
 function Hook.OnPlayerSkillUpdate(event, player, skill_id, value, max, step, new_value)
     if not player or not skill_id then
+        return
+    end
+
+    skill_id = tonumber(skill_id)
+    if not skill_id or not PROFESSION_SKILLS[skill_id] then
+        return
+    end
+
+    local previous_value = tonumber(value)
+    local current_value = tonumber(new_value)
+    if not previous_value or not current_value then
+        return
+    end
+
+    local skill_points_gained = math.floor(current_value - previous_value)
+    if skill_points_gained <= 0 then
         return
     end
 
@@ -806,7 +852,7 @@ function Hook.OnPlayerSkillUpdate(event, player, skill_id, value, max, step, new
         defaults = { paragon },
     })
 
-    UpdatePlayerExperience(player, paragon, EXPERIENCE_SOURCE.SKILL, skill_id)
+    UpdatePlayerExperience(player, paragon, EXPERIENCE_SOURCE.SKILL, skill_id, skill_points_gained)
 end
 
 -- ============================================================================

@@ -717,7 +717,9 @@ paragon  -- Modified or original paragon instance
 ```
 
 **Description:**
-Triggered before skill experience is awarded.
+Triggered before profession skill experience is awarded. The configured skill
+reward is multiplied by the actual number of skill points gained; weapon,
+defense, riding, and lockpicking updates do not qualify.
 
 ---
 

@@ -62,7 +62,7 @@ The **Paragon System** introduces an endgame progression mechanic for AzerothCor
   - **Combat**: Hit, Crit, Haste, Expertise, Armor Penetration
   - **Stats**: Strength, Agility, Stamina, Resistances, HP/Mana
   - **Auras**: Loot, Reputation, and Experience bonuses
-- **🎮 Multi-Source Experience**: Gain paragon XP from creatures, achievements, quests, and skills
+- **🎮 Multi-Source Experience**: Gain paragon XP from creatures, achievements, quests, and profession skill-ups
 - **💰 Point System**: Earn points to distribute among available statistics
 - **🔄 Client Integration**: In-game interface via custom addon
 - **💾 Persistent**: All progress saved to database
@@ -225,7 +225,7 @@ Configure the system via database entries in `paragon_config`:
 |-------|-------------|---------|
 | `UNIVERSAL_CREATURE_EXPERIENCE` | Default XP for creature kills | `50` |
 | `UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE` | Default XP for achievements | `100` |
-| `UNIVERSAL_SKILL_EXPERIENCE` | Default XP for skill increases | `25` |
+| `UNIVERSAL_SKILL_EXPERIENCE` | Base XP per profession skill point gained | `50` |
 | `UNIVERSAL_QUEST_EXPERIENCE` | Fallback XP for quest completion | `1` |
 | `PARAGON_ACHIEVEMENT_POINT_XP` | XP awarded per achievement point | `1000` |
 | `PARAGON_GROUP_XP_DISTANCE` | Maximum distance for party kill-XP sharing | `74` |

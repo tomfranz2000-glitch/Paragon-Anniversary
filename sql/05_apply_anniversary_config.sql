@@ -6,6 +6,9 @@
 -- updates existing rows. Run it once when upgrading an older installation.
 -- ============================================================================
 
+ALTER TABLE `acore_ale`.`paragon_config_experience_skill`
+    MODIFY COLUMN `experience` INT(11) NOT NULL DEFAULT 50;
+
 INSERT INTO `acore_ale`.`paragon_config` (field, value) VALUES
 -- System Control
 ('ENABLE_PARAGON_SYSTEM', '1'),
@@ -25,7 +28,7 @@ INSERT INTO `acore_ale`.`paragon_config` (field, value) VALUES
 -- Experience Rewards
 ('UNIVERSAL_CREATURE_EXPERIENCE', '50'),
 ('UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE', '100'),
-('UNIVERSAL_SKILL_EXPERIENCE', '25'),
+('UNIVERSAL_SKILL_EXPERIENCE', '50'),
 ('UNIVERSAL_QUEST_EXPERIENCE', '1'),
 ('PARAGON_ACHIEVEMENT_POINT_XP', '1000'),
 ('PARAGON_GROUP_XP_DISTANCE', '74'),

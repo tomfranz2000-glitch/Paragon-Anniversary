@@ -255,7 +255,7 @@ return {
         CR_TABLE_CONFIG_EXP_SKILL = [[
             CREATE TABLE IF NOT EXISTS `%s`.`paragon_config_experience_skill` (
                 `id` INT(11) NOT NULL,
-                `experience` INT(11) NOT NULL DEFAULT 25,
+                `experience` INT(11) NOT NULL DEFAULT 50,
 
                 PRIMARY KEY (`id`)
             );
@@ -305,7 +305,7 @@ return {
             -- Experience Rewards (Universal Defaults)
             ('UNIVERSAL_CREATURE_EXPERIENCE', '50'),
             ('UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE', '100'),
-            ('UNIVERSAL_SKILL_EXPERIENCE', '25'),
+            ('UNIVERSAL_SKILL_EXPERIENCE', '50'),
             ('UNIVERSAL_QUEST_EXPERIENCE', '1'),
             ('PARAGON_ACHIEVEMENT_POINT_XP', '1000'),
             ('PARAGON_GROUP_XP_DISTANCE', '74'),
@@ -393,6 +393,5 @@ return {
         }
     }
 }
-
 
 

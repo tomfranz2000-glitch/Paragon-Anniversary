@@ -61,13 +61,14 @@ Kept as the completionist backbone. Replace the flat 100 with
 paragon level early on), a 50-point meta = 50,000 (≈ four raid bosses).
 Inherently one-time, inherently breadth-rewarding.
 
-### Skill-ups — kept, flat 100 per tick
+### Profession skill-ups — 50 base XP per point
 
-Every skill point gained grants **100 XP** (`UNIVERSAL_SKILL_EXPERIENCE = 100`)
-[tunable — placeholder value, real tuning later]. Naturally bounded: a full
-1–450 profession ≈ 45k XP (~4–5 paragon levels early on), then that profession
-is done. Profession *mastery* one-time bonuses may still come later in the
-future-sources batch, on top of ticks.
+Every profession skill point gained grants **50 base XP**
+(`UNIVERSAL_SKILL_EXPERIENCE = 50`) before personal Paragon XP bonuses. Weapon,
+defense, riding, and lockpicking gains do not qualify. Naturally bounded: a
+full 1–450 profession is about 22.5k base XP, then that profession is done.
+Profession *mastery* one-time bonuses may still come later in the future-sources
+batch, on top of ticks.
 
 ### Future one-time sources (deferred, not in scope)
 
@@ -172,8 +173,8 @@ Related config changes:
 3. **Daily-quest stacking** — 25 dailies ≈ 500k on quest values above; fine as
    a strong daily ritual, but it anchors the income assumption. If it dwarfs
    dungeon play, tune quest values, not the curve.
-4. **Profession powerleveling** — buying mats and spamming 1–450 ≈ 45k XP in
-   an hour. Bounded per profession, but check it doesn't beat playing.
+4. **Profession powerleveling** — buying mats and spamming 1–450 ≈ 22.5k base
+   XP in an hour. Bounded per profession, but check it doesn't beat playing.
 5. Bot accrual noise in the paragon tables.
 
 ## Implementation map (brief)

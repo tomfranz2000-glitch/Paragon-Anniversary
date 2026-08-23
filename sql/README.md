@@ -58,12 +58,16 @@ And verify that default configuration values were inserted:
 ```sql
 SELECT COUNT(*) FROM acore_ale.paragon_config;
 -- Should return at least 22 rows
+SELECT value FROM acore_ale.paragon_config
+WHERE field = 'UNIVERSAL_SKILL_EXPERIENCE';
+-- Should return 50
 ```
 
 `04_insert_default_config.sql` is non-destructive and only fills missing rows.
 Run `05_apply_anniversary_config.sql` once when upgrading an existing database;
 it intentionally replaces previous configuration values with this fork's realm
-preset.
+preset and updates the skill-override column default to 50. Existing rows in
+`paragon_config_experience_skill` remain deliberate per-skill overrides.
 
 ## Generated world content
 

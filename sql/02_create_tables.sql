@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config_experience_achievement` (
 
 CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config_experience_skill` (
     `id` INT(11) NOT NULL,
-    `experience` INT(11) NOT NULL DEFAULT 25,
+    `experience` INT(11) NOT NULL DEFAULT 50,
 
     PRIMARY KEY (`id`)
 );

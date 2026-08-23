@@ -392,6 +392,9 @@ Run these checks:
 
 ```sql
 SELECT COUNT(*) AS settings FROM acore_ale.paragon_config;
+SELECT value AS profession_xp_per_point
+FROM acore_ale.paragon_config
+WHERE field = 'UNIVERSAL_SKILL_EXPERIENCE';
 SELECT COUNT(*) AS custom_spells
 FROM acore_world.spell_dbc
 WHERE ID >= 1900000 AND ID < 2000000;
@@ -410,12 +413,13 @@ On the authoritative `main` branch, the custom-spell coverage audit reports 743
 client-generated records plus 21 deliberately server-only records. Both title
 rows must be present on a fresh host. The solo-achievement query must report
 96 rows and 1,045 total points; Paragon reads those authoritative world rows
-for custom achievement XP.
+for custom achievement XP. `profession_xp_per_point` must report `50`.
 
 At login, the console must not report `SetData`/`GetData` errors. A level-80
-character should earn Paragon XP from configured sources; a lower-level
-character should not. The first Paragon level requires 30,000 XP with the
-Anniversary preset.
+character should earn 50 base Paragon XP per profession skill point (before
+personal XP bonuses), while weapon and riding skill-ups earn none. A lower-level
+character should not earn Paragon XP. The first Paragon level requires 30,000
+XP with the Anniversary preset.
 
 ### Client verification
 

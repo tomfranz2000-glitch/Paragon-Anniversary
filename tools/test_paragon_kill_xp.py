@@ -137,7 +137,7 @@ class ParagonKillXPTests(unittest.TestCase):
 
 @unittest.skipUnless(LuaRuntime, "lupa.lua52 is required for Lua behavior tests")
 class ParagonPersonalBonusTests(unittest.TestCase):
-    def test_ten_percent_personal_bonus_is_applied_after_group_share(self):
+    def test_ten_percent_personal_bonus_is_applied_after_base_reward(self):
         lua = LuaRuntime(unpack_returned_tuples=True)
         lua.execute(
             """
@@ -165,9 +165,13 @@ class ParagonPersonalBonusTests(unittest.TestCase):
         )
         with open(COLLECTION_XP, encoding="utf-8") as handle:
             lua.execute(handle.read())
-        result = lua.globals().mediator_handlers["OnExperienceCalculated"](
+        handler = lua.globals().mediator_handlers["OnExperienceCalculated"]
+        kill_result = handler(
             lua.globals().Player, lua.globals().Paragon, 1, 280)
-        self.assertEqual(308, result[1])
+        profession_result = handler(
+            lua.globals().Player, lua.globals().Paragon, 3, 50)
+        self.assertEqual(308, kill_result[1])
+        self.assertEqual(55, profession_result[1])
 
 
 class ParagonKillXPContractTests(unittest.TestCase):

@@ -89,7 +89,7 @@ insert  into `paragon_config`(`field`,`value`) values
 ('UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE','100'),
 ('UNIVERSAL_CREATURE_EXPERIENCE','50'),
 ('UNIVERSAL_QUEST_EXPERIENCE','1'),
-('UNIVERSAL_SKILL_EXPERIENCE','25');
+('UNIVERSAL_SKILL_EXPERIENCE','50');
 
 /*Table structure for table `paragon_config_category` */
 
