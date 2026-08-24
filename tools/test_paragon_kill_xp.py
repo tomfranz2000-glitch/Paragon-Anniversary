@@ -29,7 +29,7 @@ class ParagonKillXPTests(unittest.TestCase):
             }
             function Config:GetByField(field)
                 if field == "PARAGON_GROUP_XP_DISTANCE" then return "74" end
-                if field == "PARAGON_ACHIEVEMENT_POINT_XP" then return "1000" end
+                if field == "PARAGON_ACHIEVEMENT_POINT_XP" then return "2000" end
                 return nil
             end
             package.preload["paragon_config"] = function() return Config end

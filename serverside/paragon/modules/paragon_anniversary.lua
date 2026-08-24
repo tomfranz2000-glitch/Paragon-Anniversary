@@ -195,10 +195,11 @@ local function OnExperienceCalculated(player, paragon, source_type, specific_exp
         return
     end
 
-    -- Achievement, profession mastery, and quest awards are exact one-time
-    -- rewards. The common hook bypasses this event for them; retain this guard
-    -- as defense in depth for direct/custom event dispatches.
-    if source_type == 2 or source_type == 3 or source_type == 4 then
+    -- Achievement, profession mastery, quest, and collectible awards are
+    -- exact flat rewards. The common hook bypasses this event for them; retain
+    -- this guard as defense in depth for direct/custom event dispatches.
+    if source_type == 2 or source_type == 3 or source_type == 4
+            or source_type == 8 then
         return
     end
 

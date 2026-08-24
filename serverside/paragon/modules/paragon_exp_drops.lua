@@ -12,14 +12,21 @@
     (0 = none), uint32 total xp, uint8 type (0 kill / 1 non-kill), kill
     only: uint32 raw xp + float group rate, uint8 RAF flag.
 
-    The gain handler records a pending drop. Creature awards then raise the
-    OnAfterCreatureExperienceAwarded mediator event, which anchors the packet
-    to the victim without depending on Lua file or player-handler load order.
-    A 50ms fallback timer flushes non-kill gains (quests, achievements, skills,
-    banking) as the victimless packet shape.
+    The shared award boundary publishes the exact applied amount and source.
+    Creature awards briefly remain pending until
+    OnAfterCreatureExperienceAwarded anchors the native packet to the victim.
+    Every non-creature gain sends addon response 8 immediately, which draws the
+    floating number client-side (the stock non-kill packet never does). Sources
+    without a detailed message also receive the victimless native chat packet.
 ]]
 
+local Hook = require("paragon_hook")
+
 local OPCODE_LOG_XPGAIN = 0x1D0
+local SOURCE_CREATURE = Hook.ExperienceSource.CREATURE
+local SOURCE_ACHIEVEMENT = Hook.ExperienceSource.ACHIEVEMENT
+local SOURCE_COLLECTIBLE = Hook.ExperienceSource.COLLECTIBLE
+local FLOAT_RESPONSE = 8
 
 -- guidLow -> { gained = n }  (consumed by the kill handler or the flush timer)
 local pending = {}
@@ -42,57 +49,46 @@ local function SendDrop(player, gained, victimGuid)
     player:SendPacket(pkt)
 end
 
-local function Snapshot(paragon)
-    return {
-        level = paragon:GetLevel(),
-        xp = paragon:GetExperience(),
-        max = paragon:GetExperienceForNextLevel(),
-    }
-end
-
--- baseline so the first gain after login diffs correctly
-RegisterMediatorEvent("OnAfterUpdatePlayerStatistics", function(player, paragon, apply)
-    pcall(function()
-        if player and paragon and apply and not player:GetData("ParagonXpDrop") then
-            player:SetData("ParagonXpDrop", Snapshot(paragon))
-        end
-    end)
-end)
-
-RegisterMediatorEvent("OnAfterUpdatePlayerExperience", function(player, paragon)
+RegisterMediatorEvent("OnAfterUpdatePlayerExperience", function(player, paragon, gained, sourceType, sourceEntry)
     local ok, err = pcall(function()
         if not player or not paragon then
             return
         end
-        local now = Snapshot(paragon)
-        local last = player:GetData("ParagonXpDrop")
-        player:SetData("ParagonXpDrop", now)
-        if not last then
+        gained = math.floor(tonumber(gained) or 0)
+        if gained <= 0 then
             return
         end
 
-        local gained = 0
-        if now.level == last.level then
-            gained = now.xp - last.xp
-        elseif now.level > last.level then
-            -- multi-level jumps understate (intermediate maxes unknown here)
-            gained = (last.max - last.xp) + now.xp
-        end
-        if gained <= 0 then
+        if tonumber(sourceType) ~= SOURCE_CREATURE then
+            -- Collection rewards and the entry-0 bank payout already emit a
+            -- richer source-specific chat line. They still get the immediate
+            -- float, but avoid a redundant generic "You gain XP" line.
+            local has_contextual_chat = tonumber(sourceType) == SOURCE_COLLECTIBLE
+                or (tonumber(sourceType) == SOURCE_ACHIEVEMENT
+                    and tonumber(sourceEntry) == 0)
+            if not has_contextual_chat then
+                SendDrop(player, gained, nil)
+            end
+            player:SendServerResponse(Hook.Addon.Prefix, FLOAT_RESPONSE, gained)
             return
         end
 
         local guidLow = player:GetGUIDLow()
         pending[guidLow] = { gained = gained }
+        -- Defensive fallback for a future creature caller which does not raise
+        -- OnAfterCreatureExperienceAwarded. Normal kill rewards consume the
+        -- entry synchronously and this timer becomes a no-op.
         CreateLuaEvent(function()
             local pend = pending[guidLow]
             if not pend then
                 return
             end
             pending[guidLow] = nil
-            local p = GetPlayerByGUID(guidLow)
+            local guid = GetPlayerGUID(guidLow)
+            local p = guid and GetPlayerByGUID(guid)
             if p then
                 SendDrop(p, pend.gained, nil)
+                p:SendServerResponse(Hook.Addon.Prefix, FLOAT_RESPONSE, pend.gained)
             end
         end, 50, 1)
     end)

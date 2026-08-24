@@ -491,6 +491,12 @@ SELECT COUNT(*) AS settings FROM acore_ale.paragon_config;
 SELECT value AS profession_xp_per_point
 FROM acore_ale.paragon_config
 WHERE field = 'UNIVERSAL_SKILL_EXPERIENCE';
+SELECT value AS achievement_xp_per_point
+FROM acore_ale.paragon_config
+WHERE field = 'PARAGON_ACHIEVEMENT_POINT_XP';
+SELECT COUNT(*) AS obsolete_runtime_multiplier
+FROM acore_ale.paragon_config
+WHERE field = 'PARAGON_ONE_TIME_XP_MULTIPLIER';
 SELECT COUNT(*) AS custom_spells
 FROM acore_world.spell_dbc
 WHERE ID >= 1900000 AND ID < 2000000;
@@ -512,16 +518,19 @@ On the authoritative `main` branch, the custom-spell coverage audit reports 743
 client-generated records plus 21 deliberately server-only records. Both title
 rows must be present on a fresh host. The solo-achievement query must report
 96 rows and 1,045 total points; Paragon reads those authoritative world rows
-for custom achievement XP. `profession_xp_per_point` must report `1000`.
+for custom achievement XP. `profession_xp_per_point` and
+`achievement_xp_per_point` must both report `2000`, while
+`obsolete_runtime_multiplier` must report `0`.
 
 At login, the console must not report `SetData`/`GetData` errors. A level-80
-character should earn exactly 1000 Paragon XP for each genuinely new profession
-high-water point, unaffected by personal XP bonuses; weapon and riding skill-ups
-earn none. A point earned below level 80 should be recorded as pending and paid
-once at eligibility, while existing skills on upgrade must only seed their
-high-water marks. Successful craft/gather/process actions use the generated
-resource valuation and do receive the normal personal XP modifier exactly once.
-The first Paragon level requires 30,000 XP with the Anniversary preset.
+character should earn exactly 2000 Paragon XP for each genuinely new profession
+high-water point, unaffected by personal XP bonuses; weapon and
+riding skill-ups earn none. A point earned below level 80 should be recorded as
+final pending XP and paid unchanged at eligibility, while existing skills on
+upgrade must only seed their high-water
+marks. Successful craft/gather/process actions use the generated resource
+valuation and do receive the normal personal XP modifier exactly once. The
+first Paragon level requires 30,000 XP with the Anniversary preset.
 
 ### Client verification
 

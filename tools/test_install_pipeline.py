@@ -206,7 +206,7 @@ class InstallPipelineTests(unittest.TestCase):
     def test_database_verification_requires_exact_tables_and_triggers(self):
         pipeline = object.__new__(install.Pipeline)
         pipeline.verify_canonical_world_content = mock.Mock()
-        content_ok = "\t".join(["1"] * 11) + "\n"
+        content_ok = "\t".join(["1"] * 13) + "\n"
         pipeline._mysql = mock.Mock(side_effect=(
             "\n".join(reversed(install.REQUIRED_ALE_TABLES)) + "\n",
             "\n".join(reversed(install.REQUIRED_ALE_TRIGGERS)) + "\n",

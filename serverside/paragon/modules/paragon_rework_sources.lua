@@ -123,7 +123,7 @@ function ParagonRework_AchievementValue(achievement_id)
     end
 
     local points = AchievementPoints(achievement_id)
-    local per_point = tonumber(Config:GetByField("PARAGON_ACHIEVEMENT_POINT_XP")) or 1000
+    local per_point = tonumber(Config:GetByField("PARAGON_ACHIEVEMENT_POINT_XP")) or 2000
     return points * per_point
 end
 

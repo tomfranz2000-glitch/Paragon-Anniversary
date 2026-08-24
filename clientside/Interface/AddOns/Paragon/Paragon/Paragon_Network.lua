@@ -58,6 +58,7 @@ local Addon = {
         [5] = "UIParagon_OnReceiveStatistic",         -- Receive amount for specific statistic
         [6] = "UIParagon_OnReceiveTargetLevel",      -- Receive player target paragon level
         [7] = "UIParagon_OnReceiveRewardTrack",      -- Receive reward track milestone definitions
+        [8] = "UIParagon_OnReceiveExperienceDrop",   -- Float exact non-kill Paragon XP immediately
     }
 }
 

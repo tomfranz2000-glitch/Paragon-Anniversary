@@ -6,7 +6,7 @@
       * genuine profession skill points are one-time completion progress. The
         highest rewarded value is durable at account scope when Paragon is
         account-linked (character scope otherwise), and the resulting XP is
-        flat: it never crosses OnExperienceCalculated;
+        flat and authoritative: it never crosses OnExperienceCalculated;
       * successful craft/gather/process actions are repeatable. ALE event 76
         supplies a server action token and authoritative context, the generated
         profession data resolves the base amount, and the award crosses
@@ -95,7 +95,7 @@ local function SystemEnabled()
 end
 
 local function SkillPointXP()
-    local value = Integer(Config:GetByField("UNIVERSAL_SKILL_EXPERIENCE")) or 1000
+    local value = Integer(Config:GetByField("UNIVERSAL_SKILL_EXPERIENCE")) or 2000
     return math.max(0, value)
 end
 

@@ -4,15 +4,14 @@
     Flat paragon XP the first time an ACCOUNT obtains a mount, companion,
     or transmog appearance. Values are difficulty-scaled offline by
     Tools/paragon_collectible_xp.py (easiest-acquisition-path model,
-    overrides for marquee items — Invincible 2M etc.) into:
+    overrides for marquee items — Invincible 4M etc.) into:
 
         paragon_collectible_spell_xp   mount + companion spells (all)
-        paragon_collectible_item_xp    appearances ABOVE the 1000 baseline
+        paragon_collectible_item_xp    all classified appearance values
 
-    FLAT by construction: awards go straight through the banking module's
-    lump-sum pattern (Mediator "OnUpdatePlayerExperience"), which never
-    passes OnExperienceCalculated — no collection/achievement/quest/
-    transmog multiplier ever touches these, matching achievement XP.
+    FLAT by construction: awards use paragon_hook's COLLECTIBLE source. Their
+    generator-owned values bypass OnExperienceCalculated and every personal XP
+    modifier, and publish the common post-award event used by immediate drops.
 
     ONE-TIME per account via mirror tables (seeded by the classifier's
     --seed with the collections existing at deploy time, so nothing pays
@@ -34,7 +33,7 @@
     module rides the same beats as the milestone-975 ladder: store-new-
     item (53) / equip (29) set a dirty flag, a 10s ticker (humans only)
     diffs the account's unlocked set against the mirror and awards one
-    combined lump per batch. Appearances above 5000 XP get their own
+    combined lump per batch. Appearances worth at least 10000 XP get their own
     toast line (the mythic moments deserve their fanfare).
 ]]
 
@@ -43,8 +42,9 @@ local Config = require("paragon_config")
 local Hook = require("paragon_hook")
 
 local DB = Constant.DB_NAME
-local BASELINE_ITEM_XP = 1000
-local NOTABLE_XP = 5000
+local SOURCE_COLLECTIBLE = Hook.ExperienceSource.COLLECTIBLE
+local BASELINE_ITEM_XP = 2000
+local NOTABLE_XP = 10000
 local TICK_MS = 10000
 
 local SPELL_MIRROR_KEY = "ParagonCollectSpellMirror"
@@ -60,7 +60,7 @@ end
 -- ============================================================================
 
 local SPELL_XP = {}   -- spell_id -> { kind, name, xp }
-local ITEM_XP = {}    -- item_id  -> { name, xp } (above-baseline only)
+local ITEM_XP = {}    -- item_id  -> { name, xp } (authoritative generated value)
 
 do
     local q = CharDBQuery(string.format(
@@ -100,32 +100,11 @@ local function Comma(n)
     return s
 end
 
---- Lump-sum flat award through the banking module's pipeline (curve fix +
---- OnUpdatePlayerExperience + client pushes). Returns false when paragon
---- data is not loaded yet — callers skip and retry on a later beat.
-local function AwardFlatXP(player, amount)
-    local paragon = player:GetData("Paragon")
-    if not paragon then
-        return false
-    end
-
-    if ParagonRework_CurveCost then
-        local expected = ParagonRework_CurveCost(paragon:GetLevel())
-        if paragon:GetExperienceForNextLevel() ~= expected then
-            paragon:SetExperienceForNextLevel(expected)
-        end
-    end
-
-    paragon = Mediator.On("OnUpdatePlayerExperience", {
-        arguments = { player, paragon, amount },
-        defaults = { paragon },
-    })
-
-    player:SendServerResponse(Hook.Addon.Prefix, 1, paragon:GetLevel())
-    player:SendServerResponse(Hook.Addon.Prefix, 2, paragon:GetExperience(), paragon:GetExperienceForNextLevel())
-    player:SendServerResponse(Hook.Addon.Prefix, 4, paragon:GetPoints())
-    player:SetData("Paragon", paragon)
-    return true
+--- Award one authoritative collectible value through the common flat pipeline.
+--- The returned amount is the exact value accepted by the award boundary.
+local function AwardFlatXP(player, entry, amount)
+    return Hook.AwardFlatExperience(
+        player, SOURCE_COLLECTIBLE, entry, amount)
 end
 
 local function IsBot(player)
@@ -177,7 +156,8 @@ RegisterPlayerEvent(44, function(event, player, spellId)
         if mirror[spellId] then
             return
         end
-        if not AwardFlatXP(player, def.xp) then
+        local awarded, awarded_xp = AwardFlatXP(player, spellId, def.xp)
+        if not awarded then
             return -- paragon still loading: retried by the next login re-teach
         end
         mirror[spellId] = true
@@ -186,7 +166,7 @@ RegisterPlayerEvent(44, function(event, player, spellId)
             DB, player:GetAccountId(), spellId))
         player:SendBroadcastMessage(string.format(
             "|cff00ff00[Paragon]|r New %s collected: %s \226\128\148 +%s Paragon XP!",
-            def.kind, def.name, Comma(def.xp)))
+            def.kind, def.name, Comma(awarded_xp)))
     end)
     if not ok then
         print("[Paragon] collection reward learn-event error: " .. tostring(err))
@@ -226,7 +206,8 @@ local function SettleAppearances(player)
             fresh[#fresh + 1] = item
             total = total + xp
             if def and def.xp >= NOTABLE_XP then
-                notable[#notable + 1] = string.format("%s (+%s)", def.name, Comma(def.xp))
+                notable[#notable + 1] = string.format(
+                    "%s (+%s)", def.name, Comma(def.xp))
             end
         end
     until not q:NextRow()
@@ -234,7 +215,8 @@ local function SettleAppearances(player)
     if #fresh == 0 then
         return
     end
-    if not AwardFlatXP(player, total) then
+    local awarded, awarded_total = AwardFlatXP(player, 0, total)
+    if not awarded then
         return -- paragon not loaded; stays unmarked and settles later
     end
 
@@ -250,7 +232,7 @@ local function SettleAppearances(player)
 
     player:SendBroadcastMessage(string.format(
         "|cff00ff00[Paragon]|r %d new appearance%s collected \226\128\148 +%s Paragon XP!",
-        #fresh, #fresh == 1 and "" or "s", Comma(total)))
+        #fresh, #fresh == 1 and "" or "s", Comma(awarded_total)))
     for _, line in ipairs(notable) do
         player:SendBroadcastMessage("|cff00ff00[Paragon]|r     " .. line)
     end
@@ -293,5 +275,5 @@ RegisterMediatorEvent("OnAfterUpdatePlayerStatistics", function(player, paragon,
     end
 end)
 
-print(string.format("[Paragon] Rework: collection rewards module loaded (%d spells, %d notable items)",
+print(string.format("[Paragon] Rework: collection rewards module loaded (%d spells, %d appearance values)",
     CountEntries(SPELL_XP), CountEntries(ITEM_XP)))

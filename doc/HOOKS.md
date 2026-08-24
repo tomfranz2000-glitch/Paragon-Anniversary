@@ -27,7 +27,7 @@ This document lists all available **Mediator hooks** in the Paragon system. Hook
 player      -- The player object
 paragon     -- The paragon instance
 source_type -- CREATURE=1, ACHIEVEMENT=2, SKILLUP=3, QUEST=4,
-            -- CRAFT=5, GATHER=6, PROCESS=7
+            -- CRAFT=5, GATHER=6, PROCESS=7, COLLECTIBLE=8
 entry       -- The source entry/context ID
 ```
 
@@ -73,8 +73,10 @@ experience  -- Modified experience value
 **Description:**
 Triggered after repeatable experience is calculated but before level-up
 processing. Allows modification of `CREATURE=1`, `CRAFT=5`, `GATHER=6`, and
-`PROCESS=7` XP based on conditions. Exact one-time `ACHIEVEMENT=2`, `SKILLUP=3`,
-and `QUEST=4` awards always bypass this hook at the common award boundary.
+`PROCESS=7` XP based on conditions. Flat `ACHIEVEMENT=2`, `SKILLUP=3`,
+`QUEST=4`, and `COLLECTIBLE=8` awards always bypass this hook at the common
+award boundary. Their authoritative config/generator values are already the
+final amounts; no runtime one-time scaling stage exists.
 
 Subscribers run in registration order. Each subscriber receives the XP returned
 by the previous subscriber; returning `nil` leaves that value unchanged. This
@@ -167,18 +169,24 @@ end)
 ```lua
 player  -- The player object
 paragon -- The paragon instance (with _last_exp_gained and _last_levels_gained metadata)
+awarded_experience -- Exact amount applied after source resolution/modifiers
+source_type        -- CREATURE=1 ... COLLECTIBLE=8
+entry              -- Source entry/context ID supplied at the award boundary
 ```
 
 **Return Value:**
 None
 
 **Description:**
-Triggered after experience processing is complete and client has been updated. Used for logging, analytics, and side effects.
+Triggered after experience processing is complete and client has been updated.
+The XP-drop module uses the exact amount/source to show non-kill rewards
+immediately and to anchor creature rewards to their victim without stale-state
+diffing.
 
 **Example:**
 ```lua
-RegisterMediatorEvent("OnAfterUpdatePlayerExperience", function(player, paragon)
-    local last_exp = paragon._last_exp_gained or 0
+RegisterMediatorEvent("OnAfterUpdatePlayerExperience", function(player, paragon, awarded_experience, source_type, entry)
+    local last_exp = awarded_experience or 0
     local last_levels = paragon._last_levels_gained or 0
 
     if last_levels > 0 then
@@ -726,11 +734,11 @@ paragon  -- Modified or original paragon instance
 
 **Description:**
 Triggered before an eligible profession high-water award. The universal
-`UNIVERSAL_SKILL_EXPERIENCE` value is multiplied by the actual number of newly
-mastered points, then bypasses `OnExperienceCalculated`. Legacy per-skill
-override rows are not consulted. Account-linked realms share one durable
-high-water mark across alts. Weapon, defense, riding, and lockpicking updates do
-not qualify.
+`UNIVERSAL_SKILL_EXPERIENCE` is multiplied by the actual number of newly
+mastered points and bypasses `OnExperienceCalculated`. With the shipped direct
+value of 2000, each point pays exactly 2000 XP. Legacy per-skill override rows are not
+consulted. Account-linked realms share one durable high-water mark across alts.
+Weapon, defense, riding, and lockpicking updates do not qualify.
 
 ---
 

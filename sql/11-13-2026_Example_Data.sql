@@ -93,7 +93,7 @@ insert  into `paragon_config`(`field`,`value`) values
 ('LEVEL_UP_ANIMATION','64785'),
 ('LOW_LEVEL_THRESHOLD','5'),
 ('MINIMUM_LEVEL_FOR_PARAGON_XP','80'),
-('PARAGON_ACHIEVEMENT_POINT_XP','1000'),
+('PARAGON_ACHIEVEMENT_POINT_XP','2000'),
 ('PARAGON_CURVE_K','20'),
 ('PARAGON_CURVE_R0','0.0429'),
 ('PARAGON_GROUP_XP_DISTANCE','74'),
@@ -104,7 +104,7 @@ insert  into `paragon_config`(`field`,`value`) values
 ('UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE','100'),
 ('UNIVERSAL_CREATURE_EXPERIENCE','50'),
 ('UNIVERSAL_QUEST_EXPERIENCE','1'),
-('UNIVERSAL_SKILL_EXPERIENCE','1000');
+('UNIVERSAL_SKILL_EXPERIENCE','2000');
 
 /*Table structure for table `paragon_config_category` */
 
@@ -167,7 +167,7 @@ DROP TABLE IF EXISTS `paragon_config_experience_skill`;
 
 CREATE TABLE `paragon_config_experience_skill` (
   `id` int NOT NULL,
-  `experience` int NOT NULL DEFAULT '1000',
+  `experience` int NOT NULL DEFAULT '2000',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 

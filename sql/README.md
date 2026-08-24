@@ -77,7 +77,13 @@ SELECT COUNT(*) FROM acore_ale.paragon_config;
 -- Should return at least 22 rows
 SELECT value FROM acore_ale.paragon_config
 WHERE field = 'UNIVERSAL_SKILL_EXPERIENCE';
--- Should return 1000
+-- Should return 2000 (final XP)
+SELECT value FROM acore_ale.paragon_config
+WHERE field = 'PARAGON_ACHIEVEMENT_POINT_XP';
+-- Should return 2000 (final XP per achievement point)
+SELECT COUNT(*) FROM acore_ale.paragon_config
+WHERE field = 'PARAGON_ONE_TIME_XP_MULTIPLIER';
+-- Should return 0 (obsolete runtime policy is removed)
 SELECT COUNT(*) FROM acore_ale.paragon_config_category;
 -- Should return at least 4
 SELECT COUNT(*) FROM acore_ale.paragon_config_statistic;
@@ -87,10 +93,13 @@ SELECT COUNT(*) FROM acore_ale.paragon_config_statistic;
 `04_insert_default_config.sql` is non-destructive and only fills missing rows.
 The bootstrap's final migration intentionally replaces previous configuration
 values with this fork's realm preset, updates the legacy skill-override column
-default to 1000, creates the profession ledger, and seeds current
-account/character high-water values without retroactive XP. Profession skill-up
-awards use the universal exact value; legacy per-skill rows are retained for
-schema compatibility but do not override that flat high-water contract.
+default to 2000, removes the obsolete runtime one-time multiplier, creates the
+profession ledger, and seeds current account/character high-water values
+without retroactive XP. Existing unpaid 1000-point profession/achievement
+claims are upgraded once while their old authority rows still identify them;
+new profession skill-up awards store the final universal value directly.
+Legacy per-skill rows remain for schema compatibility but do not override that
+flat high-water contract.
 
 ## Generated world content
 

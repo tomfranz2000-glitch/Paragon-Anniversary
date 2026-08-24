@@ -1005,8 +1005,12 @@ class Pipeline:
         sql = (
             "SELECT "
             "(SELECT COUNT(*) >= 22 FROM acore_ale.paragon_config),"
-            "(SELECT value = '1000' FROM acore_ale.paragon_config "
+            "(SELECT value = '2000' FROM acore_ale.paragon_config "
             " WHERE field='UNIVERSAL_SKILL_EXPERIENCE'),"
+            "(SELECT value = '2000' FROM acore_ale.paragon_config "
+            " WHERE field='PARAGON_ACHIEVEMENT_POINT_XP'),"
+            "(SELECT COUNT(*) = 0 FROM acore_ale.paragon_config "
+            " WHERE field='PARAGON_ONE_TIME_XP_MULTIPLIER'),"
             "(SELECT COUNT(*) > 0 FROM acore_ale.paragon_collectible_spell_xp),"
             "(SELECT COUNT(*) > 0 FROM acore_ale.paragon_config_experience_quest),"
             "(SELECT COUNT(*) >= 764 FROM acore_world.spell_dbc "
@@ -1047,9 +1051,9 @@ class Pipeline:
             " AND character_maximum_length=32);")
         output = self._mysql(sql, capture=True).strip().splitlines()
         values = output[-1].split("\t") if output else []
-        if values != ["1"] * 11:
+        if values != ["1"] * 13:
             raise InstallError(
-                "database verification failed (config, profession XP, "
+                "database verification failed (config, direct one-time XP, "
                 "collection/quest rows, content, achievements, profession "
                 "progress, categories, statistics, or type_value schema is "
                 "incomplete): %s" % (values or "no output"))

@@ -51,17 +51,19 @@ local EXPERIENCE_SOURCE = {
     CRAFT = 5,
     GATHER = 6,
     PROCESS = 7,
+    COLLECTIBLE = 8,
 }
 
 Hook.ExperienceSource = EXPERIENCE_SOURCE
 
--- One-time completion rewards have exact configured values. Enforce this at
--- the shared application boundary so no caller or modifier module can
+-- Flat contract sources have exact authoritative values. Enforce this at the
+-- shared application boundary so no caller or personal modifier module can
 -- accidentally scale them.
 local FLAT_EXPERIENCE_SOURCE = {
     [EXPERIENCE_SOURCE.ACHIEVEMENT] = true,
     [EXPERIENCE_SOURCE.SKILLUP] = true,
     [EXPERIENCE_SOURCE.QUEST] = true,
+    [EXPERIENCE_SOURCE.COLLECTIBLE] = true,
 }
 
 -- ============================================================================
@@ -198,9 +200,9 @@ end
 
 --- Applies an already-calculated award and synchronizes its resulting state.
 --- `apply_modifiers = false` is the deliberately flat path used by rewards
---- whose amount is a contract. Achievement, skill-up, and quest sources also
---- force this path here regardless of the caller's request.
-local function ApplyPlayerExperience(player, paragon, source_type, experience, apply_modifiers)
+--- whose amount is a contract. Achievement, skill-up, quest, and collectible
+--- sources also force this path here regardless of the caller's request.
+local function ApplyPlayerExperience(player, paragon, source_type, entry, experience, apply_modifiers)
     if not CanReceiveExperience(player, paragon) then
         return false
     end
@@ -251,7 +253,7 @@ local function ApplyPlayerExperience(player, paragon, source_type, experience, a
     player:SetData("Paragon", paragon)
 
     Mediator.On("OnAfterUpdatePlayerExperience", {
-        arguments = { player, paragon },
+        arguments = { player, paragon, specific_experience, source_type, entry },
     })
 
     return true, specific_experience
@@ -276,7 +278,7 @@ function Hook.AwardExperience(player, source_type, entry, experience, apply_modi
     })
 
     return ApplyPlayerExperience(
-        player, paragon, source_type, experience, apply_modifiers ~= false)
+        player, paragon, source_type, entry, experience, apply_modifiers ~= false)
 end
 
 function Hook.AwardFlatExperience(player, source_type, entry, experience)
@@ -294,7 +296,8 @@ end
 --- - OnBeforeUpdatePlayerExperience: (player, paragon, source_type, entry) - allows modification before award
 --- - OnExperienceCalculated: (player, paragon, source_type, specific_experience) - after calculation
 --- - OnUpdatePlayerExperience: (player, paragon, specific_experience) - delegates level-up handling
---- - OnAfterUpdatePlayerExperience: (player, paragon) - cleanup after processing
+--- - OnAfterUpdatePlayerExperience: (player, paragon, awarded_experience,
+---   source_type, entry) - cleanup and exact XP-drop reporting after processing
 --- - OnParagonStateSync: (player, paragon) - allows custom sync logic before sending to client
 ---
 --- @param player The player object
@@ -352,7 +355,8 @@ local function UpdatePlayerExperience(player, paragon, source_type, entry, rewar
     end
 
     specific_experience = specific_experience * reward_count
-    return ApplyPlayerExperience(player, paragon, source_type, specific_experience, true)
+    return ApplyPlayerExperience(
+        player, paragon, source_type, entry, specific_experience, true)
 end
 
 Hook.UpdatePlayerExperience = UpdatePlayerExperience

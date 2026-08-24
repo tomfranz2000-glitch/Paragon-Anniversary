@@ -33,7 +33,7 @@ class ParagonAchievementXPTests(unittest.TestCase):
                 }
             }
             function Config:GetByField(field)
-                if field == "PARAGON_ACHIEVEMENT_POINT_XP" then return "1000" end
+                if field == "PARAGON_ACHIEVEMENT_POINT_XP" then return "2000" end
                 return nil
             end
             package.preload["paragon_config"] = function() return Config end
@@ -79,24 +79,24 @@ class ParagonAchievementXPTests(unittest.TestCase):
         return self.lua.globals().WorldQueryCounts[achievement_id] or 0
 
     def test_committed_stock_points_map_wins_without_query(self):
-        self.assertEqual(10000, self.value(6))
+        self.assertEqual(20000, self.value(6))
         self.assertEqual(0, self.query_count(6))
 
     def test_custom_dungeon_uses_world_dbc_points(self):
-        self.assertEqual(10000, self.value(19001))
+        self.assertEqual(20000, self.value(19001))
 
     def test_custom_meta_uses_world_dbc_points(self):
-        self.assertEqual(25000, self.value(19301))
+        self.assertEqual(50000, self.value(19301))
 
     def test_custom_capstone_uses_world_dbc_points(self):
-        self.assertEqual(50000, self.value(19304))
+        self.assertEqual(100000, self.value(19304))
 
     def test_zero_point_and_unknown_rows_award_zero(self):
         self.assertEqual(0, self.value(19999))
         self.assertEqual(0, self.value(19998))
 
     def test_world_dbc_hits_and_misses_are_cached(self):
-        for achievement_id, expected in ((19001, 10000), (19999, 0), (19998, 0)):
+        for achievement_id, expected in ((19001, 20000), (19999, 0), (19998, 0)):
             self.assertEqual(expected, self.value(achievement_id))
             self.assertEqual(expected, self.value(achievement_id))
             self.assertEqual(1, self.query_count(achievement_id))

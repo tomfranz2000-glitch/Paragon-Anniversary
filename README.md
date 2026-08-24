@@ -253,10 +253,18 @@ remains durable and can be paid after the system is enabled again.
 |-------|-------------|---------|
 | `UNIVERSAL_CREATURE_EXPERIENCE` | Default XP for creature kills | `50` |
 | `UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE` | Default XP for achievements | `100` |
-| `UNIVERSAL_SKILL_EXPERIENCE` | Exact, unmodified XP per new profession high-water point | `1000` |
+| `UNIVERSAL_SKILL_EXPERIENCE` | Exact XP per new profession high-water point | `2000` |
 | `UNIVERSAL_QUEST_EXPERIENCE` | Fallback XP for quest completion | `1` |
-| `PARAGON_ACHIEVEMENT_POINT_XP` | XP awarded per achievement point | `1000` |
+| `PARAGON_ACHIEVEMENT_POINT_XP` | Exact XP awarded per achievement point | `2000` |
 | `PARAGON_GROUP_XP_DISTANCE` | Maximum distance for party kill-XP sharing | `74` |
+
+One-time rewards are stored at their final values: a profession high-water
+point and an ordinary appearance pay 2,000 XP, a 10-point achievement pays
+20,000 XP, and a baseline mount pays 160,000 XP. The collection generator
+stores every pet, mount, ordinary appearance, and rarity override at its final
+doubled value.
+These rewards remain outside every personal Paragon XP modifier; quests and
+repeatable craft/gather/process rewards are unchanged.
 
 ### Experience Multipliers
 

@@ -8,7 +8,7 @@
 -- ============================================================================
 
 ALTER TABLE `acore_ale`.`paragon_config_experience_skill`
-    MODIFY COLUMN `experience` INT(11) NOT NULL DEFAULT 1000;
+    MODIFY COLUMN `experience` INT(11) NOT NULL DEFAULT 2000;
 
 -- The profession payout acknowledgement updates its progression row and
 -- pending ledger in one statement, so both tables must be transactional.
@@ -26,6 +26,32 @@ CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_profession_progress` (
 ) ENGINE=InnoDB;
 
 ALTER TABLE `acore_ale`.`paragon_profession_progress` ENGINE=InnoDB;
+ALTER TABLE `acore_ale`.`paragon_banked_experience` ENGINE=InnoDB;
+ALTER TABLE `acore_ale`.`paragon_config` ENGINE=InnoDB;
+
+START TRANSACTION;
+
+-- Retire the temporary runtime-scaling policy if an intermediate installation
+-- created it. Every one-time source now stores and awards its final value.
+DELETE FROM `acore_ale`.`paragon_config`
+WHERE `field` = 'PARAGON_ONE_TIME_XP_MULTIPLIER';
+
+-- Upgrade unpaid one-time claims from the former 1000-point authorities to
+-- the new final 2000-point values. The joins make this exactly-once: this file
+-- upserts both config rows to 2000 below, so every rerun skips these updates.
+UPDATE `acore_ale`.`paragon_profession_progress` profession
+JOIN `acore_ale`.`paragon_config` config
+  ON config.`field` = 'UNIVERSAL_SKILL_EXPERIENCE'
+ AND config.`value` = '1000'
+SET profession.`pending_xp` = profession.`pending_xp` * 2
+WHERE profession.`pending_xp` > 0;
+
+UPDATE `acore_ale`.`paragon_banked_experience` banked
+JOIN `acore_ale`.`paragon_config` config
+  ON config.`field` = 'PARAGON_ACHIEVEMENT_POINT_XP'
+ AND config.`value` = '1000'
+SET banked.`amount` = banked.`amount` * 2
+WHERE banked.`amount` > 0;
 
 -- Seed both supported progression scopes from existing character skills.
 -- Re-running this migration is safe: it can only raise high-water and never
@@ -98,9 +124,9 @@ INSERT INTO `acore_ale`.`paragon_config` (field, value) VALUES
 -- Experience Rewards
 ('UNIVERSAL_CREATURE_EXPERIENCE', '50'),
 ('UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE', '100'),
-('UNIVERSAL_SKILL_EXPERIENCE', '1000'),
+('UNIVERSAL_SKILL_EXPERIENCE', '2000'),
 ('UNIVERSAL_QUEST_EXPERIENCE', '1'),
-('PARAGON_ACHIEVEMENT_POINT_XP', '1000'),
+('PARAGON_ACHIEVEMENT_POINT_XP', '2000'),
 ('PARAGON_GROUP_XP_DISTANCE', '74'),
 
 -- Experience Multipliers
@@ -112,3 +138,5 @@ INSERT INTO `acore_ale`.`paragon_config` (field, value) VALUES
 -- Point Customization
 ('DEFAULT_STAT_LIMIT', '255')
 ON DUPLICATE KEY UPDATE value = VALUES(value);
+
+COMMIT;

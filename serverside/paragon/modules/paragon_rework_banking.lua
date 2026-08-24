@@ -4,9 +4,9 @@
 
     One-time XP rewards earned below the paragon minimum level (achievements,
     for now) accrue in acore_ale.paragon_banked_experience and are paid out as
-    a single lump sum through the normal level-up pipeline when the character
-    reaches the minimum level. Forward-only: nothing is granted retroactively
-    for achievements earned before this module shipped.
+    one authoritative-value lump through the normal level-up pipeline when the
+    character reaches the minimum level. Forward-only: nothing is granted
+    retroactively for achievements earned before this module shipped.
 ]]
 
 local Config = require("paragon_config")
@@ -14,6 +14,7 @@ local Constant = require("paragon_constant")
 local Hook = require("paragon_hook")
 
 local BANK_TABLE = Constant.DB_NAME .. ".paragon_banked_experience"
+local SOURCE_ACHIEVEMENT = Hook.ExperienceSource.ACHIEVEMENT
 
 local function MinLevel()
     return tonumber(Config:GetByField("MINIMUM_LEVEL_FOR_PARAGON_XP")) or 80
@@ -43,33 +44,18 @@ end)
 -- ============================================================================
 
 local function PayOut(player, banked)
-    local paragon = player:GetData("Paragon")
-    if not paragon then
-        return
+    local awarded, awarded_xp = Hook.AwardFlatExperience(
+        player, SOURCE_ACHIEVEMENT, 0, banked)
+    if not awarded then
+        return false
     end
-
-    -- Ensure the curved cost is in place before cascading level-ups
-    if ParagonRework_CurveCost then
-        local expected = ParagonRework_CurveCost(paragon:GetLevel())
-        if paragon:GetExperienceForNextLevel() ~= expected then
-            paragon:SetExperienceForNextLevel(expected)
-        end
-    end
-
-    paragon = Mediator.On("OnUpdatePlayerExperience", {
-        arguments = { player, paragon, banked },
-        defaults = { paragon },
-    })
-
-    player:SendServerResponse(Hook.Addon.Prefix, 1, paragon:GetLevel())
-    player:SendServerResponse(Hook.Addon.Prefix, 2, paragon:GetExperience(), paragon:GetExperienceForNextLevel())
-    player:SendServerResponse(Hook.Addon.Prefix, 4, paragon:GetPoints())
-    player:SetData("Paragon", paragon)
 
     player:SendBroadcastMessage(string.format(
-        "|cff00ff00[Paragon]|r Your banked achievement rewards paid out %d paragon experience!", banked))
+        "|cff00ff00[Paragon]|r Your banked achievement rewards paid out %d paragon experience!",
+        awarded_xp))
 
     CharDBExecute(string.format("DELETE FROM %s WHERE guid = %d;", BANK_TABLE, player:GetGUIDLow()))
+    return true
 end
 
 local function OnLevelChange(event, player, old_level)

@@ -57,21 +57,32 @@ competing with endgame.
 ### Achievements — one-time, points-scaled
 
 Kept as the completionist backbone. Replace the flat 100 with
-**achievement points × 1000** [tunable]: a 10-pointer = 10,000 (≈ a full
-paragon level early on), a 50-point meta = 50,000 (≈ four raid bosses).
-Inherently one-time, inherently breadth-rewarding.
+**achievement points × 2000 XP** [tunable]: a 10-pointer = 20,000, and a
+50-point meta = 100,000. The configured per-point value is the final award;
+there is no runtime one-time multiplier. Inherently one-time, inherently
+breadth-rewarding.
 
-### Profession mastery — 1000 flat XP per new point
+### Profession mastery — 2000 flat XP per new point
 
-Each genuinely new profession high-water point grants **exactly 1000 XP**
-(`UNIVERSAL_SKILL_EXPERIENCE = 1000`). It bypasses every personal and global XP
-multiplier. In account-linked mode the high-water mark is account-wide, so an
-alt, an unlearn/relearn cycle, or a replayed callback cannot farm it; in
+Each genuinely new profession high-water point grants **exactly 2,000 XP**
+(`UNIVERSAL_SKILL_EXPERIENCE = 2000`). That is the stored and awarded value,
+and it bypasses every personal XP modifier. In
+account-linked mode the high-water mark is account-wide, so an alt, an
+unlearn/relearn cycle, or a replayed callback cannot farm it; in
 character-linked mode it follows that character instead. A complete 1–450
-profession is therefore 450,000 XP. Weapon, defense, riding, and lockpicking
+profession is therefore 900,000 XP. Weapon, defense, riding, and lockpicking
 never qualify. Existing skill values are seeded without retroactive payment,
 while genuine future points earned below level 80 are durably banked and paid
 once the account becomes eligible.
+
+### Collection unlocks — difficulty-scaled, one-time
+
+The first account unlock of a transmog appearance, companion, or mount pays the
+final value written by the collection generator. Ordinary appearances pay
+2,000 XP, baseline companions 60,000 XP, and baseline mounts 160,000 XP;
+rarity overrides are doubled in the generator as well (for example, Invincible
+pays 4,000,000 XP). Reward mirrors prevent
+relearning, relogging, or another character from paying the same unlock again.
 
 ### Profession actions — resource-valued repeatable XP
 
@@ -100,8 +111,8 @@ Paragon XP accrues **only at level 80** (`MINIMUM_LEVEL_FOR_PARAGON_XP = 80`).
 
 **Pre-80 banking (placeholder solution, decided).** One-time XP rewards earned
 before level 80 are **banked** and paid out as a single lump sum on reaching 80.
-This covers achievements and future profession high-water points. Other future
-one-time sources inherit the same banking mechanic when they ship.
+This covers achievements and profession high-water points. Other future
+one-time sources can inherit the same banking mechanic when they ship.
 
 Regular-lane sources (mobs, quests, and repeatable profession actions) are
 deliberately **not** banked. Mob and quest rewards continue feeding normal
@@ -190,7 +201,7 @@ Related config changes:
 3. **Daily-quest stacking** — 25 dailies ≈ 500k on quest values above; fine as
    a strong daily ritual, but it anchors the income assumption. If it dwarfs
    dungeon play, tune quest values, not the curve.
-4. **Profession economy loops** — a full new 1–450 high-water track is 450k
+4. **Profession economy loops** — a full new 1–450 high-water track is 900k
    exact XP once per progression scope. Track repeatable action XP/hour by
    profession and tier; tune generated resource weights rather than the curve.
 5. Bot accrual noise in the paragon tables.

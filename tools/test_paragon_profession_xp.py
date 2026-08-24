@@ -43,7 +43,7 @@ class ParagonProfessionXPTests(unittest.TestCase):
                 ENABLE_PARAGON_SYSTEM = "1",
                 MINIMUM_LEVEL_FOR_PARAGON_XP = "80",
                 LEVEL_LINKED_TO_ACCOUNT = "1",
-                UNIVERSAL_SKILL_EXPERIENCE = "1000",
+                UNIVERSAL_SKILL_EXPERIENCE = "2000",
                 UNIVERSAL_CREATURE_EXPERIENCE = "50",
                 UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE = "100",
                 UNIVERSAL_QUEST_EXPERIENCE = "1",
@@ -245,7 +245,7 @@ class ParagonProfessionXPTests(unittest.TestCase):
                 Player.Bot = false
                 ConfigValues.ENABLE_PARAGON_SYSTEM = "1"
                 ConfigValues.LEVEL_LINKED_TO_ACCOUNT = "1"
-                ConfigValues.UNIVERSAL_SKILL_EXPERIENCE = "1000"
+                ConfigValues.UNIVERSAL_SKILL_EXPERIENCE = "2000"
                 SkillOverrides = {}
                 Paragon.Level = 1
                 Paragon.Experience = 0
@@ -289,11 +289,11 @@ class ParagonProfessionXPTests(unittest.TestCase):
         }
         self.assertEqual(PROFESSION_SKILLS, actual)
 
-    def test_skillup_is_exactly_1000_and_bypasses_all_modifiers(self):
+    def test_skillup_is_exactly_2000_and_bypasses_personal_modifiers(self):
         self.lua.globals().ModifierFactor = 9
         self.lua.globals().SkillOverrides[164] = 25
         self.skill(164, 100, 101)
-        self.assertEqual([1000], self.awards())
+        self.assertEqual([2000], self.awards())
         self.assertEqual(0, self.lua.globals().ModifierCalls)
         operations = [
             self.lua.globals().ExecutedAt(index)
@@ -308,18 +308,19 @@ class ParagonProfessionXPTests(unittest.TestCase):
         # module mistakenly asks for the modified award path.
         self.assertTrue(
             self.hook.AwardExperience(
-                self.lua.globals().Player, 3, 164, 1000, True
+                self.lua.globals().Player, 3, 164, 2000, True
             )
         )
-        self.assertEqual([1000, 1000], self.awards())
+        self.assertEqual([2000, 2000], self.awards())
         self.assertEqual(0, self.lua.globals().ModifierCalls)
 
     def test_all_flat_sources_bypass_the_common_modifier_boundary(self):
         self.lua.globals().ModifierFactor = 9
         for source_type, entry, experience in (
             (2, 9001, 125),
-            (3, 164, 1000),
+            (3, 164, 2000),
             (4, 9002, 75),
+            (8, 9003, 500),
         ):
             with self.subTest(source_type=source_type):
                 self.assertTrue(
@@ -332,7 +333,7 @@ class ParagonProfessionXPTests(unittest.TestCase):
                     )
                 )
 
-        self.assertEqual([125, 1000, 75], self.awards())
+        self.assertEqual([125, 2000, 75, 500], self.awards())
         self.assertEqual(0, self.lua.globals().ModifierCalls)
 
     def test_disabled_system_blocks_awards_banks_and_token_consumption(self):
@@ -357,40 +358,40 @@ class ParagonProfessionXPTests(unittest.TestCase):
         self.assertEqual([160], self.awards())
 
     def test_disabled_system_preserves_previously_earned_pending_xp(self):
-        self.lua.globals().SetProgress(1, 7, 164, 101, 1000)
+        self.lua.globals().SetProgress(1, 7, 164, 101, 2000)
         self.lua.globals().ConfigValues.ENABLE_PARAGON_SYSTEM = "0"
 
         self.assertFalse(self.module.PayPending(self.lua.globals().Player))
         self.assertEqual([], self.awards())
-        self.assertEqual(1000, self.lua.globals().GetProgress(1, 7, 164, 5))
+        self.assertEqual(2000, self.lua.globals().GetProgress(1, 7, 164, 5))
 
         self.lua.globals().ConfigValues.ENABLE_PARAGON_SYSTEM = 1
         self.assertTrue(self.module.PayPending(self.lua.globals().Player))
-        self.assertEqual([1000], self.awards())
+        self.assertEqual([2000], self.awards())
         self.assertEqual(0, self.lua.globals().GetProgress(1, 7, 164, 5))
 
     def test_multi_point_gain_scales_and_non_increases_do_not(self):
         self.skill(164, 100, 105)
         self.skill(164, 105, 105)
         self.skill(164, 105, 100)
-        self.assertEqual([5000], self.awards())
+        self.assertEqual([10000], self.awards())
 
     def test_account_high_water_blocks_replay_relearn_and_alt_farming(self):
         self.skill(164, 100, 105)
         self.skill(164, 100, 105)
         self.skill(164, 0, 103)
         self.skill(164, 105, 108)
-        self.assertEqual([5000, 3000], self.awards())
+        self.assertEqual([10000, 6000], self.awards())
 
         self.lua.globals().Player.Guid = 71
         self.lua.globals().Player.Data = self.lua.table_from({"Paragon": self.lua.globals().Paragon})
         self.skill(164, 0, 109)
-        self.assertEqual([5000, 3000, 1000], self.awards())
+        self.assertEqual([10000, 6000, 2000], self.awards())
 
     def test_account_cache_serializes_alts_while_database_writes_are_pending(self):
         self.lua.globals().ApplyDBWrites = False
         self.skill(164, 100, 101)
-        self.assertEqual([1000], self.awards())
+        self.assertEqual([2000], self.awards())
         self.assertIsNone(self.lua.globals().GetProgress(1, 7, 164, 4))
 
         self.lua.globals().Player.Guid = 71
@@ -398,7 +399,7 @@ class ParagonProfessionXPTests(unittest.TestCase):
             {"Paragon": self.lua.globals().Paragon}
         )
         self.skill(164, 100, 101)
-        self.assertEqual([1000], self.awards())
+        self.assertEqual([2000], self.awards())
 
     def test_character_linked_mode_scopes_high_water_by_guid(self):
         self.lua.globals().ConfigValues.LEVEL_LINKED_TO_ACCOUNT = "0"
@@ -406,12 +407,12 @@ class ParagonProfessionXPTests(unittest.TestCase):
         self.lua.globals().Player.Guid = 71
         self.lua.globals().Player.Data = self.lua.table_from({"Paragon": self.lua.globals().Paragon})
         self.skill(164, 100, 101)
-        self.assertEqual([1000, 1000], self.awards())
+        self.assertEqual([2000, 2000], self.awards())
 
     def test_numeric_account_mode_and_invalid_owner_ids_fail_closed(self):
         self.lua.globals().ConfigValues.LEVEL_LINKED_TO_ACCOUNT = 1
         self.skill(164, 100, 101)
-        self.assertEqual([1000], self.awards())
+        self.assertEqual([2000], self.awards())
         self.assertEqual(101, self.lua.globals().GetProgress(1, 7, 164, 4))
 
         self.lua.globals().Player.Data = self.lua.table_from(
@@ -419,20 +420,20 @@ class ParagonProfessionXPTests(unittest.TestCase):
         )
         self.lua.globals().Player.Account = 0
         self.skill(164, 101, 102)
-        self.assertEqual([1000], self.awards())
+        self.assertEqual([2000], self.awards())
 
     def test_pre80_future_points_bank_and_pay_once_when_eligible(self):
         self.lua.globals().Player.Level = 79
         self.skill(164, 100, 103)
         self.assertEqual([], self.awards())
-        self.assertEqual(3000, self.lua.globals().GetProgress(1, 7, 164, 5))
+        self.assertEqual(6000, self.lua.globals().GetProgress(1, 7, 164, 5))
 
         self.lua.globals().Player.Level = 80
         self.assertTrue(self.module.PayPending(self.lua.globals().Player))
-        self.assertEqual([3000], self.awards())
+        self.assertEqual([6000], self.awards())
         self.assertEqual(0, self.lua.globals().GetProgress(1, 7, 164, 5))
         self.assertFalse(self.module.PayPending(self.lua.globals().Player))
-        self.assertEqual([3000], self.awards())
+        self.assertEqual([6000], self.awards())
 
     def test_weapon_defense_riding_and_lockpicking_never_award_or_bank(self):
         self.lua.globals().Player.Level = 79
@@ -557,20 +558,32 @@ class ParagonProfessionXPConfigContractTests(unittest.TestCase):
         with open(path, encoding="utf-8") as handle:
             return handle.read()
 
-    def test_shipped_configs_set_1000_flat_xp(self):
-        pattern = re.compile(
+    def test_shipped_configs_set_direct_2000_skill_reward(self):
+        value_pattern = re.compile(
             r"\('UNIVERSAL_SKILL_EXPERIENCE',\s*'(?P<value>\d+)'\)"
         )
         for path in (DEFAULT_CONFIG, ANNIVERSARY_CONFIG):
             with self.subTest(path=os.path.relpath(path, ROOT)):
-                match = pattern.search(self.read(path))
-                self.assertIsNotNone(match)
-                self.assertEqual("1000", match.group("value"))
+                text = self.read(path)
+                value = value_pattern.search(text)
+                self.assertIsNotNone(value)
+                self.assertEqual("2000", value.group("value"))
 
-    def test_skill_override_schema_defaults_to_1000(self):
+        self.assertNotIn("PARAGON_ONE_TIME_XP_MULTIPLIER", self.read(DEFAULT_CONFIG))
+        upgrade = self.read(ANNIVERSARY_CONFIG)
+        self.assertNotRegex(
+            upgrade,
+            r"\('PARAGON_ONE_TIME_XP_MULTIPLIER',\s*'[^']+'\)",
+        )
+        self.assertRegex(
+            upgrade,
+            r"(?s)DELETE FROM .*paragon_config.*PARAGON_ONE_TIME_XP_MULTIPLIER",
+        )
+
+    def test_skill_override_schema_defaults_to_2000(self):
         table_pattern = re.compile(
             r"paragon_config_experience_skill.*?"
-            r"`experience`\s+INT(?:\(11\))?\s+NOT NULL\s+DEFAULT\s+['\"]?1000",
+            r"`experience`\s+INT(?:\(11\))?\s+NOT NULL\s+DEFAULT\s+['\"]?2000",
             re.DOTALL | re.IGNORECASE,
         )
         for path in (SCHEMA,):
@@ -583,6 +596,32 @@ class ParagonProfessionXPConfigContractTests(unittest.TestCase):
         self.assertRegex(sql, r"SELECT\s+1,\s*c\.`account`.*MAX\(cs\.`value`\)")
         self.assertRegex(sql, r"SELECT\s+0,\s*cs\.`guid`.*cs\.`value`")
         self.assertIn("ON DUPLICATE KEY UPDATE", sql)
+
+    def test_unpaid_claim_uplift_and_config_rewrite_are_one_transaction(self):
+        sql = self.read(ANNIVERSARY_CONFIG)
+        transaction = re.search(
+            r"START TRANSACTION;(?P<body>.*?)COMMIT;",
+            sql,
+            re.DOTALL | re.IGNORECASE,
+        )
+        self.assertIsNotNone(transaction)
+        body = transaction.group("body")
+        self.assertRegex(
+            body,
+            r"(?s)UNIVERSAL_SKILL_EXPERIENCE.*?'1000'.*?pending_xp.*?\*\s*2",
+        )
+        self.assertRegex(
+            body,
+            r"(?s)PARAGON_ACHIEVEMENT_POINT_XP.*?'1000'.*?amount.*?\*\s*2",
+        )
+        self.assertRegex(
+            body,
+            r"UNIVERSAL_SKILL_EXPERIENCE',\s*'2000'",
+        )
+        self.assertRegex(
+            body,
+            r"PARAGON_ACHIEVEMENT_POINT_XP',\s*'2000'",
+        )
 
     def test_atomic_payout_tables_are_forced_to_innodb(self):
         create_pattern = lambda table: re.compile(

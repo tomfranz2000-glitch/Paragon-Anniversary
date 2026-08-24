@@ -5,9 +5,8 @@ Computes a flat paragon-XP reward for every collectible, scaled by how hard
 it is to acquire (user spec 2026-08-18), and writes:
 
   acore_ale.paragon_collectible_spell_xp   mount+companion spells (ALL rows)
-  acore_ale.paragon_collectible_item_xp    appearance items ABOVE the 1000
-                                           baseline only (baseline lives in
-                                           the Lua module)
+  acore_ale.paragon_collectible_item_xp    ALL classified appearance items,
+                                           including the 2000 baseline
   Tools/generated/collectible_xp_review.csv   human review dump
 
   --seed additionally creates + seeds the one-time-reward mirrors with the
@@ -16,8 +15,8 @@ it is to acquire (user spec 2026-08-18), and writes:
   acore_ale.paragon_rewarded_appearance        (account_id, item_id)
 
 Difficulty model ("easiest path wins"): every acquisition path of an item
-is scored as a multiplier of the group baseline (mount 80k / companion 30k /
-appearance 1k) and the CHEAPEST path defines the reward.
+is scored against the final group values (mount 160k / companion 60k /
+appearance 2k) and the CHEAPEST path defines the reward.
 
   vendor (gold only)          x1   (>=1000g x1.2, >=10000g x1.5)
   vendor (token/emblem cost)  x3
@@ -35,15 +34,15 @@ Loot math handles reference_loot_template indirection and grouped rolls
 what makes world-drop groups like Teebu's effectively <0.01%).
 
 Transmog appearances map to a tier ladder instead of a raw multiplier
-(user tuning: the mass stays at 1k, the top is truly mythic):
+(user tuning: the mass stays at 2k, the top is truly mythic):
 
-  2,500   raid-boss epics
-  5,000   <=10% drops / heroic-only tables / rare-spawn loot
-  12,000  ilvl 277 / <=2% drops
-  30,000  ilvl 284 / <=0.5% drops / effective world-drop <=0.1%
-  500,000 effective <=0.02% (Teebu's tier)
-  750,000 legendaries (quality 5), marquee pieces pinned higher in OVERRIDES
-  ...a gold/emblem vendor or quest path caps the tier at 2,500, and
+  5,000     raid-boss epics
+  10,000    <=10% drops / heroic-only tables / rare-spawn loot
+  24,000    ilvl 277 / <=2% drops
+  60,000    ilvl 284 / <=0.5% drops / effective world-drop <=0.1%
+  1,000,000 effective <=0.02% (Teebu's tier)
+  1,500,000 legendaries (quality 5), marquee pieces pinned higher in OVERRIDES
+  ...a gold/emblem vendor or quest path caps the tier at 5,000, and
   TEST/DEPRECATED items are dropped.
 
 Rerunnable: value tables are DELETE+repopulated; mirrors are only touched
@@ -64,14 +63,25 @@ CACHE = os.path.abspath(os.environ.get(
 OUT_CSV = os.path.join(HERE, "generated", "collectible_xp_review.csv")
 DB_CONTAINER = os.environ.get("ACORE_DB_CONTAINER", "ac-database")
 
-BASE_MOUNT, BASE_COMPANION, BASE_ITEM = 80000, 30000, 1000
-# Formula ceiling (mounts 960k / companions 360k). Deliberately BELOW the
+BASE_MOUNT, BASE_COMPANION, BASE_ITEM = 160000, 60000, 2000
+SPELL_ROUNDING = 1000
+ITEM_TIERS = {
+    "raid_epic": 5000,
+    "scarce": 10000,
+    "prestige": 24000,
+    "pinnacle": 60000,
+    "mythic_world_drop": 1000000,
+    "legendary": 1500000,
+}
+EASY_ITEM_CAP = 5000
+# Formula ceiling (mounts 1.92M / companions 720k). Deliberately BELOW the
 # override band so the hand-picked marquee list is strictly the top of the
-# ladder (first run had five formula mounts tied with Invincible's 2M).
+# ladder (the old ladder had five formula mounts tied with Invincible's old
+# 2M value; the authoritative rebalance pins it to 4M).
 MULT_CAP = 12.0
 # Invisible equipment slots never read as "appearances": neck, ring,
 # trinket, relic. They still collect (mod-transmog tracks them) but stay
-# at the 1000 baseline.
+# at the 2000 baseline.
 INVISIBLE_INVTYPE = {2, 11, 12, 28}
 SKILL_MOUNTS, SKILL_COMPANIONS = 777, 778
 
@@ -79,30 +89,30 @@ SKILL_MOUNTS, SKILL_COMPANIONS = 777, 778
 # heroic is the pinnacle, or that a 100%-chance rare spawn takes weeks of
 # camping). Keyed by SPELL id for mounts, ITEM id for appearances.
 MOUNT_OVERRIDES = {
-    72286: 2000000,   # Invincible (user-pinned)
-    63796: 1500000,   # Mimiron's Head
-    40192: 1200000,   # Ashes of Al'ar
-    71342: 1000000,   # Big Love Rocket
-    60002: 800000,    # Time-Lost Proto-Drake
-    24252: 500000,    # Swift Zulian Tiger
-    24242: 500000,    # Swift Razzashi Raptor
-    59996: 500000,    # Blue Proto-Drake
-    17481: 400000,    # Rivendare's Deathcharger
-    36702: 400000,    # Fiery Warhorse
-    41252: 400000,    # Raven Lord
-    46628: 300000,    # Swift White Hawkstrider
-    48025: 300000,    # Headless Horseman's Mount
-    61294: 300000,    # Green Proto-Drake
+    72286: 4000000,   # Invincible (user-pinned)
+    63796: 3000000,   # Mimiron's Head
+    40192: 2400000,   # Ashes of Al'ar
+    71342: 2000000,   # Big Love Rocket
+    60002: 1600000,   # Time-Lost Proto-Drake
+    24252: 1000000,   # Swift Zulian Tiger
+    24242: 1000000,   # Swift Razzashi Raptor
+    59996: 1000000,   # Blue Proto-Drake
+    17481: 800000,    # Rivendare's Deathcharger
+    36702: 800000,    # Fiery Warhorse
+    41252: 800000,    # Raven Lord
+    46628: 600000,    # Swift White Hawkstrider
+    48025: 600000,    # Headless Horseman's Mount
+    61294: 600000,    # Green Proto-Drake
 }
 ITEM_OVERRIDES = {
-    49623: 1000000,   # Shadowmourne
-    32837: 1000000,   # Warglaive of Azzinoth (main)
-    32838: 1000000,   # Warglaive of Azzinoth (off)
-    19019: 900000,    # Thunderfury
-    17182: 800000,    # Sulfuras
-    46017: 800000,    # Val'anyr
-    34334: 700000,    # Thori'dal
-    1728:  600000,    # Teebu's Blazing Longsword
+    49623: 2000000,   # Shadowmourne
+    32837: 2000000,   # Warglaive of Azzinoth (main)
+    32838: 2000000,   # Warglaive of Azzinoth (off)
+    19019: 1800000,   # Thunderfury
+    17182: 1600000,   # Sulfuras
+    46017: 1600000,   # Val'anyr
+    34334: 1400000,   # Thori'dal
+    1728:  1200000,   # Teebu's Blazing Longsword
 }
 BAD_NAME = ("TEST", "Deprecated", "DEPRECATED", "[PH]", "(old)", "OLD")
 
@@ -384,7 +394,7 @@ def main():
             m = best(item)
             if m[0] is not None:
                 mult, reason = m
-        xp = int(round(min(mult, MULT_CAP) * base / 500.0) * 500)
+        xp = int(round(min(mult, MULT_CAP) * base / SPELL_ROUNDING) * SPELL_ROUNDING)
         if sid in MOUNT_OVERRIDES:
             xp, reason = MOUNT_OVERRIDES[sid], reason + " +override"
         name = iname or ("spell %d" % sid)
@@ -401,7 +411,12 @@ def main():
     # heroic-DUNGEON loot is trivial badge fodder on this server.
     item_rows = []
     for iid, (name, quality, ilvl, _rep, invtype) in sorted(items.items()):
-        if any(b in (name or "") for b in BAD_NAME) or invtype in INVISIBLE_INVTYPE:
+        if any(b in (name or "") for b in BAD_NAME):
+            continue
+        if invtype in INVISIBLE_INVTYPE:
+            item_rows.append((iid, name, BASE_ITEM))
+            review.append((
+                "appearance", iid, name, BASE_ITEM, "invisible-slot baseline"))
             continue
         plist = paths.get(iid, ())
         easy = any(p["kind"] in ("vendor", "token", "quest") for p in plist)
@@ -417,26 +432,26 @@ def main():
         xp = BASE_ITEM
         why = []
         if quality == 5:
-            xp, why = 750000, ["legendary"]
+            xp, why = ITEM_TIERS["legendary"], ["legendary"]
         elif wild4 is not None and wild4 <= 0.02:
-            xp, why = 500000, ["world-drop %.4f%%" % wild4]
+            xp, why = ITEM_TIERS["mythic_world_drop"], ["world-drop %.4f%%" % wild4]
         elif ilvl >= 284 or (chance3 is not None and chance3 <= 0.5 and quality >= 4) \
                 or (wild4 is not None and wild4 <= 0.1):
-            xp, why = 30000, ["pinnacle (284 / <=0.5% epic)"]
+            xp, why = ITEM_TIERS["pinnacle"], ["pinnacle (284 / <=0.5% epic)"]
         elif ilvl == 277 or (chance3 is not None and chance3 <= 2):
-            xp, why = 12000, ["prestige (277 / <=2% rare+)"]
+            xp, why = ITEM_TIERS["prestige"], ["prestige (277 / <=2% rare+)"]
         elif (chance3 is not None and chance3 <= 5) or heroraid or (rare and quality >= 3):
-            xp, why = 5000, ["scarce (<=5% rare+ / heroic raid / rare-spawn)"]
+            xp, why = ITEM_TIERS["scarce"], ["scarce (<=5% rare+ / heroic raid / rare-spawn)"]
         elif boss and quality >= 4:
-            xp, why = 2500, ["raid epic"]
+            xp, why = ITEM_TIERS["raid_epic"], ["raid epic"]
         if easy and quality != 5:
-            xp = min(xp, 2500)
+            xp = min(xp, EASY_ITEM_CAP)
             why.append("easy path cap")
         if iid in ITEM_OVERRIDES:
             xp, why = ITEM_OVERRIDES[iid], why + ["override"]
-        if xp > BASE_ITEM:
-            item_rows.append((iid, name, xp))
-            review.append(("appearance", iid, name, xp, " ".join(why)))
+        item_rows.append((iid, name, xp))
+        review.append((
+            "appearance", iid, name, xp, " ".join(why) or "baseline"))
 
     # ---- write DB / exact read-only check ----------------------------------
     expected_spell_rows = [
@@ -485,7 +500,7 @@ def main():
             for i, n, x in ch))
     stmts.append("COMMIT;")
     mysql("\n".join(stmts), db="acore_ale")
-    print("wrote %d spell rows, %d above-baseline item rows"
+    print("wrote %d spell rows, %d authoritative item rows"
           % (len(spell_rows), len(item_rows)))
 
     if args.seed:
