@@ -26,8 +26,9 @@ This document lists all available **Mediator hooks** in the Paragon system. Hook
 ```lua
 player      -- The player object
 paragon     -- The paragon instance
-source_type -- The experience source type (CREATURE=1, ACHIEVEMENT=2, SKILL=3, QUEST=4)
-entry       -- The source entry ID (creature ID, achievement ID, skill ID, or quest ID)
+source_type -- CREATURE=1, ACHIEVEMENT=2, SKILLUP=3, QUEST=4,
+            -- CRAFT=5, GATHER=6, PROCESS=7
+entry       -- The source entry/context ID
 ```
 
 **Return Value:**
@@ -70,7 +71,14 @@ experience  -- Modified experience value
 ```
 
 **Description:**
-Triggered after experience is calculated but before level-up processing. Allows modification of experience gain based on conditions (level, buffs, events, etc.).
+Triggered after repeatable experience is calculated but before level-up
+processing. Allows modification of `CREATURE=1`, `CRAFT=5`, `GATHER=6`, and
+`PROCESS=7` XP based on conditions. Exact one-time `ACHIEVEMENT=2`, `SKILLUP=3`,
+and `QUEST=4` awards always bypass this hook at the common award boundary.
+
+Subscribers run in registration order. Each subscriber receives the XP returned
+by the previous subscriber; returning `nil` leaves that value unchanged. This
+makes independent modifiers compose deterministically.
 
 **Example:**
 ```lua
@@ -702,7 +710,7 @@ Triggered before quest experience is awarded.
 ### OnBeforeSkillExperience
 
 **Phase:** Pre-Processing
-**Source:** `paragon_hook.lua` → `Hook.OnPlayerSkillUpdate()`
+**Source:** `modules/paragon_profession_xp.lua` via `Hook.OnPlayerSkillUpdate()`
 
 **Parameters:**
 ```lua
@@ -717,9 +725,47 @@ paragon  -- Modified or original paragon instance
 ```
 
 **Description:**
-Triggered before profession skill experience is awarded. The configured skill
-reward is multiplied by the actual number of skill points gained; weapon,
-defense, riding, and lockpicking updates do not qualify.
+Triggered before an eligible profession high-water award. The universal
+`UNIVERSAL_SKILL_EXPERIENCE` value is multiplied by the actual number of newly
+mastered points, then bypasses `OnExperienceCalculated`. Legacy per-skill
+override rows are not consulted. Account-linked realms share one durable
+high-water mark across alts. Weapon, defense, riding, and lockpicking updates do
+not qualify.
+
+---
+
+### OnAfterPlayerStatReady
+
+**Phase:** Player State Ready
+**Source:** `paragon_hook.lua` → `Hook.OnPlayerStatLoad()`
+
+**Parameters:**
+```lua
+player  -- The player object
+paragon -- The fully loaded Paragon instance already stored with SetData
+```
+
+**Description:**
+Triggered only after the live Paragon object is ready. The profession module
+uses this point to seed existing skill high-water values without retroactive XP
+and to pay any durable pre-80 profession bank.
+
+---
+
+### ALE player event 76 — profession action
+
+**Source:** required ALE/core profession-action hook
+
+```lua
+(event, player, actionKind, skillId, contextId, quantity, actionToken)
+```
+
+Action kinds are `CRAFT=1`, `GATHER_GAMEOBJECT=2`, `GATHER_CREATURE=3`,
+`FISHING_AREA=4`, `FISHING_HOLE=5`, `PROSPECT=6`, `MILL=7`, and
+`DISENCHANT=8`. The profession module maps them to Paragon sources 5–7, resolves
+the authoritative base reward through generated profession data, rejects
+unknown/mismatched rows, and deduplicates the server action token before the
+normal multiplier pipeline.
 
 ---
 

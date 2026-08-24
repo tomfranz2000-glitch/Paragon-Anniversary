@@ -46,27 +46,22 @@ local Hook = {
 local EXPERIENCE_SOURCE = {
     CREATURE = 1,
     ACHIEVEMENT = 2,
-    SKILL = 3,
-    QUEST = 4
+    SKILLUP = 3,
+    QUEST = 4,
+    CRAFT = 5,
+    GATHER = 6,
+    PROCESS = 7,
 }
 
--- WotLK profession skill lines, matching AzerothCore's IsProfessionSkill().
--- This intentionally excludes weapon, defense, riding, and lockpicking gains.
-local PROFESSION_SKILLS = {
-    [129] = true, -- First Aid
-    [164] = true, -- Blacksmithing
-    [165] = true, -- Leatherworking
-    [171] = true, -- Alchemy
-    [182] = true, -- Herbalism
-    [185] = true, -- Cooking
-    [186] = true, -- Mining
-    [197] = true, -- Tailoring
-    [202] = true, -- Engineering
-    [333] = true, -- Enchanting
-    [356] = true, -- Fishing
-    [393] = true, -- Skinning
-    [755] = true, -- Jewelcrafting
-    [773] = true, -- Inscription
+Hook.ExperienceSource = EXPERIENCE_SOURCE
+
+-- One-time completion rewards have exact configured values. Enforce this at
+-- the shared application boundary so no caller or modifier module can
+-- accidentally scale them.
+local FLAT_EXPERIENCE_SOURCE = {
+    [EXPERIENCE_SOURCE.ACHIEVEMENT] = true,
+    [EXPERIENCE_SOURCE.SKILLUP] = true,
+    [EXPERIENCE_SOURCE.QUEST] = true,
 }
 
 -- ============================================================================
@@ -166,6 +161,120 @@ end
 -- PLAYER EXPERIENCE MANAGEMENT
 -- ============================================================================
 
+local function CanReceiveExperience(player, paragon)
+    if not player or not paragon then
+        return false
+    end
+
+    -- Config values are stored as strings in SQL but tests/custom providers may
+    -- expose numbers. Match the login gate exactly: only numeric zero disables
+    -- the system, and a missing/malformed value retains the enabled default.
+    local system_enabled = tonumber(Config:GetByField("ENABLE_PARAGON_SYSTEM")) or 1
+    if system_enabled == 0 then
+        return false
+    end
+
+    local min_level = tonumber(Config:GetByField("MINIMUM_LEVEL_FOR_PARAGON_XP")) or 80
+    if player:GetLevel() < min_level then
+        return false
+    end
+
+    -- Account-wide progression belongs to real players only. In particular,
+    -- an owner character logged in through playerbots must not mutate it.
+    if player.IsPlayerBot and player:IsPlayerBot() then
+        return false
+    end
+
+    return true
+end
+
+--- Applies an already-calculated award and synchronizes its resulting state.
+--- `apply_modifiers = false` is the deliberately flat path used by rewards
+--- whose amount is a contract. Achievement, skill-up, and quest sources also
+--- force this path here regardless of the caller's request.
+local function ApplyPlayerExperience(player, paragon, source_type, experience, apply_modifiers)
+    if not CanReceiveExperience(player, paragon) then
+        return false
+    end
+
+    local specific_experience = tonumber(experience)
+    if not specific_experience or specific_experience <= 0
+            or specific_experience ~= specific_experience then
+        return false
+    end
+
+    -- Keep all exact one-time awards invariant even if a caller accidentally
+    -- requests the modified path.
+    local numeric_source_type = tonumber(source_type)
+    if numeric_source_type and numeric_source_type == numeric_source_type
+            and FLAT_EXPERIENCE_SOURCE[numeric_source_type] then
+        apply_modifiers = false
+    end
+
+    if apply_modifiers then
+        -- Repeatable sources cross this boundary exactly once. All personal
+        -- Paragon XP modifiers compose at this one mediator event.
+        specific_experience = Mediator.On("OnExperienceCalculated", {
+            arguments = { player, paragon, source_type, specific_experience },
+            defaults = { specific_experience },
+            reduce = 4,
+        })
+
+        specific_experience = tonumber(specific_experience)
+        if not specific_experience or specific_experience <= 0
+                or specific_experience ~= specific_experience then
+            return false
+        end
+    end
+
+    paragon = Mediator.On("OnUpdatePlayerExperience", {
+        arguments = { player, paragon, specific_experience },
+        defaults = { paragon }
+    })
+
+    Mediator.On("OnParagonStateSync", {
+        arguments = { player, paragon },
+    })
+
+    player:SendServerResponse(Hook.Addon.Prefix, 1, paragon:GetLevel())
+    player:SendServerResponse(Hook.Addon.Prefix, 4, paragon:GetPoints())
+    player:SendServerResponse(Hook.Addon.Prefix, 2, paragon:GetExperience(), paragon:GetExperienceForNextLevel())
+
+    player:SetData("Paragon", paragon)
+
+    Mediator.On("OnAfterUpdatePlayerExperience", {
+        arguments = { player, paragon },
+    })
+
+    return true, specific_experience
+end
+
+--- Awards a caller-calculated amount for a typed source.
+--- Repeatable callers leave `apply_modifiers` true; exact/one-time callers pass
+--- false and therefore bypass every OnExperienceCalculated subscriber.
+function Hook.AwardExperience(player, source_type, entry, experience, apply_modifiers)
+    if not player or not source_type or entry == nil then
+        return false
+    end
+
+    local paragon = player:GetData("Paragon")
+    if not CanReceiveExperience(player, paragon) then
+        return false
+    end
+
+    paragon, source_type, entry = Mediator.On("OnBeforeUpdatePlayerExperience", {
+        arguments = { player, paragon, source_type, entry },
+        defaults = { paragon, source_type, entry },
+    })
+
+    return ApplyPlayerExperience(
+        player, paragon, source_type, experience, apply_modifiers ~= false)
+end
+
+function Hook.AwardFlatExperience(player, source_type, entry, experience)
+    return Hook.AwardExperience(player, source_type, entry, experience, false)
+end
+
 ---
 --- Updates player paragon experience based on activity source.
 ---
@@ -197,14 +306,7 @@ local function UpdatePlayerExperience(player, paragon, source_type, entry, rewar
         return false
     end
 
-    -- Check minimum level requirement
-    local min_level = tonumber(Config:GetByField("MINIMUM_LEVEL_FOR_PARAGON_XP")) or 80
-    if player:GetLevel() < min_level then
-        return false
-    end
-
-    -- local patch (account-wide paragon): bots never collect paragon experience
-    if player.IsPlayerBot and player:IsPlayerBot() then
+    if not CanReceiveExperience(player, paragon) then
         return false
     end
 
@@ -217,7 +319,7 @@ local function UpdatePlayerExperience(player, paragon, source_type, entry, rewar
     local source_config_map = {
         [EXPERIENCE_SOURCE.CREATURE] = "UNIVERSAL_CREATURE_EXPERIENCE",
         [EXPERIENCE_SOURCE.ACHIEVEMENT] = "UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE",
-        [EXPERIENCE_SOURCE.SKILL] = "UNIVERSAL_SKILL_EXPERIENCE",
+        [EXPERIENCE_SOURCE.SKILLUP] = "UNIVERSAL_SKILL_EXPERIENCE",
         [EXPERIENCE_SOURCE.QUEST] = "UNIVERSAL_QUEST_EXPERIENCE"
     }
 
@@ -241,46 +343,11 @@ local function UpdatePlayerExperience(player, paragon, source_type, entry, rewar
         return false
     end
 
-    -- A multi-point profession gain represents one reward tick per actual
-    -- point. Apply source modifiers after totaling the base reward so personal
-    -- Paragon XP bonuses still compose with profession XP normally.
     specific_experience = specific_experience * reward_count
-
-    -- Allow modules to see the calculated experience before processing
-    specific_experience = Mediator.On("OnExperienceCalculated", {
-        arguments = { player, paragon, source_type, specific_experience },
-        defaults = { specific_experience },
-    })
-
-    specific_experience = tonumber(specific_experience)
-    if not specific_experience or specific_experience <= 0 then
-        return false
-    end
-
-    -- Process experience gain through Mediator (triggers level-ups)
-    paragon = Mediator.On("OnUpdatePlayerExperience", {
-        arguments = { player, paragon, specific_experience },
-        defaults = { paragon }
-    })
-
-    -- Allow modules to customize how paragon state is synced to client
-    Mediator.On("OnParagonStateSync", {
-        arguments = { player, paragon },
-    })
-
-    -- Update client with new paragon state
-    player:SendServerResponse(Hook.Addon.Prefix, 1, paragon:GetLevel())
-    player:SendServerResponse(Hook.Addon.Prefix, 4, paragon:GetPoints())
-    player:SendServerResponse(Hook.Addon.Prefix, 2, paragon:GetExperience(), paragon:GetExperienceForNextLevel())
-
-    player:SetData("Paragon", paragon)
-
-    Mediator.On("OnAfterUpdatePlayerExperience", {
-        arguments = { player, paragon },
-    })
-
-    return true
+    return ApplyPlayerExperience(player, paragon, source_type, specific_experience, true)
 end
+
+Hook.UpdatePlayerExperience = UpdatePlayerExperience
 
 -- ============================================================================
 -- PLAYER POINTS MANAGEMENT
@@ -580,6 +647,12 @@ function Hook.OnPlayerStatLoad(guid_low, paragon)
 
     player:SetData("Paragon", paragon)
 
+    -- The Paragon object is now safe for modules which need to drain durable
+    -- pending rewards. This deliberately fires before the first UI snapshot.
+    Mediator.On("OnAfterPlayerStatReady", {
+        arguments = { player, paragon },
+    })
+
     -- Apply all loaded statistics bonuses to the character
     UpdatePlayerStatistics(player, paragon, true)
 
@@ -678,17 +751,14 @@ end
 ---
 --- Handles character deletion event.
 ---
---- Cleans up paragon data when a character is deleted from the account.
---- Only deletes data if LEVEL_LINKED_TO_ACCOUNT is disabled (character-level paragon).
---- When account-level paragon is enabled, data persists for other characters on the account.
+--- Cleans up every character-scoped Paragon row when a character is deleted.
+--- Account-linked progression and account-scoped profession mastery persist for
+--- the account's other characters.
 ---
 --- @param event The event ID (2 = PLAYER_EVENT_ON_CHARACTER_DELETE)
 --- @param player_guid The GUID of the character being deleted
 ---
 function Hook.OnCharacterDelete(event, player_guid)
-    -- Delete paragon data (method will check account_linked and handle appropriately)
-    -- If account-linked: preserves data (other characters on account still use it)
-    -- If character-linked: deletes data for this character
     if player_guid then
         Repository:DeleteParagonData(player_guid)
     end
@@ -821,38 +891,10 @@ end
 --- @param new_value New skill value
 ---
 function Hook.OnPlayerSkillUpdate(event, player, skill_id, value, max, step, new_value)
-    if not player or not skill_id then
-        return
+    if Hook.ProfessionSkillUpdateHandler then
+        return Hook.ProfessionSkillUpdateHandler(
+            event, player, skill_id, value, max, step, new_value)
     end
-
-    skill_id = tonumber(skill_id)
-    if not skill_id or not PROFESSION_SKILLS[skill_id] then
-        return
-    end
-
-    local previous_value = tonumber(value)
-    local current_value = tonumber(new_value)
-    if not previous_value or not current_value then
-        return
-    end
-
-    local skill_points_gained = math.floor(current_value - previous_value)
-    if skill_points_gained <= 0 then
-        return
-    end
-
-    local paragon = player:GetData("Paragon")
-    if not paragon then
-        return
-    end
-
-    -- Allow modules to intercept skill experience gain
-    paragon = Mediator.On("OnBeforeSkillExperience", {
-        arguments = { player, skill_id, paragon },
-        defaults = { paragon },
-    })
-
-    UpdatePlayerExperience(player, paragon, EXPERIENCE_SOURCE.SKILL, skill_id, skill_points_gained)
 end
 
 -- ============================================================================

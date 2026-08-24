@@ -1,0 +1,715 @@
+diff --git a/src/server/game/Entities/GameObject/GameObject.cpp b/src/server/game/Entities/GameObject/GameObject.cpp
+index d30fb33ad..5c35988ef 100644
+--- a/src/server/game/Entities/GameObject/GameObject.cpp
++++ b/src/server/game/Entities/GameObject/GameObject.cpp
+@@ -996,7 +996,7 @@ void GameObject::Delete()
+         AddObjectToRemoveList();
+ }
+ 
+-void GameObject::GetFishLoot(Loot* fishLoot, Player* lootOwner, bool junk /*= false*/)
++uint32 GameObject::GetFishLoot(Loot* fishLoot, Player* lootOwner, bool junk /*= false*/)
+ {
+     fishLoot->clear();
+ 
+@@ -1014,8 +1014,10 @@ void GameObject::GetFishLoot(Loot* fishLoot, Player* lootOwner, bool junk /*= fa
+ 
+         // If the loot is filled and the loot is eligible, then we break out of the loop.
+         if (!fishLoot->empty() && !fishLoot->isLooted())
+-            break;
++            return fillZone;
+     }
++
++    return 0;
+ }
+ 
+ void GameObject::SaveToDB(bool saveAddon /*= false*/)
+@@ -1782,11 +1784,27 @@ void GameObject::Use(Unit* user)
+                                 // fishing pool catch
+                                 if (fishingHole)
+                                 {
++                                    bool freshCatch = fishingHole->getLootState() == GO_READY;
++                                    ObjectGuid fishingHoleGuid = fishingHole->GetGUID();
+                                     fishingHole->Use(player);
++                                    if (freshCatch && player->GetLootGUID() == fishingHoleGuid)
++                                    {
++                                        sScriptMgr->OnPlayerProfessionAction(player, PROFESSION_ACTION_FISHING_HOLE,
++                                            SKILL_FISHING, fishingHole->GetEntry(), 1);
++                                    }
+                                     SetLootState(GO_JUST_DEACTIVATED);
+                                 }
+                                 else
+-                                    player->SendLoot(GetGUID(), LOOT_FISHING);
++                                {
++                                    ObjectGuid bobberGuid = GetGUID();
++                                    uint32 fishingLootEntry = 0;
++                                    player->SendLoot(bobberGuid, LOOT_FISHING, &fishingLootEntry);
++                                    if (fishingLootEntry && player->GetLootGUID() == bobberGuid)
++                                    {
++                                        sScriptMgr->OnPlayerProfessionAction(player, PROFESSION_ACTION_FISHING_AREA,
++                                            SKILL_FISHING, fishingLootEntry, 1);
++                                    }
++                                }
+                             }
+                             else // else: junk
+                                 player->SendLoot(GetGUID(), LOOT_FISHING_JUNK);
+diff --git a/src/server/game/Entities/GameObject/GameObject.h b/src/server/game/Entities/GameObject/GameObject.h
+index 98bde1ac6..9e3dc5ab7 100644
+--- a/src/server/game/Entities/GameObject/GameObject.h
++++ b/src/server/game/Entities/GameObject/GameObject.h
+@@ -199,7 +199,7 @@ public:
+     void Refresh();
+     void DespawnOrUnsummon(Milliseconds delay = 0ms, Seconds forcedRespawnTime = 0s);
+     void Delete();
+-    void GetFishLoot(Loot* fishLoot, Player* lootOwner, bool junk = false);
++    uint32 GetFishLoot(Loot* fishLoot, Player* lootOwner, bool junk = false);
+     [[nodiscard]] GameobjectTypes GetGoType() const { return GameobjectTypes(GetByteValue(GAMEOBJECT_BYTES_1, 1)); }
+     void SetGoType(GameobjectTypes type) { SetByteValue(GAMEOBJECT_BYTES_1, 1, type); }
+     [[nodiscard]] GOState GetGoState() const { return GOState(GetByteValue(GAMEOBJECT_BYTES_1, 0)); }
+diff --git a/src/server/game/Entities/Player/Player.cpp b/src/server/game/Entities/Player/Player.cpp
+index 43f5c7f54..e16a50836 100644
+--- a/src/server/game/Entities/Player/Player.cpp
++++ b/src/server/game/Entities/Player/Player.cpp
+@@ -8003,8 +8003,11 @@ void Player::SendLootRelease(ObjectGuid guid)
+     SendDirectMessage(&data);
+ }
+ 
+-void Player::SendLoot(ObjectGuid guid, LootType loot_type)
++void Player::SendLoot(ObjectGuid guid, LootType loot_type, uint32* fishingLootEntry)
+ {
++    if (fishingLootEntry)
++        *fishingLootEntry = 0;
++
+     if (ObjectGuid lguid = GetLootGUID())
+         m_session->DoLootRelease(lguid);
+ 
+@@ -8094,7 +8097,11 @@ void Player::SendLoot(ObjectGuid guid, LootType loot_type)
+                 loot->generateMoneyLoot(addon->mingold, addon->maxgold);
+ 
+             if (loot_type == LOOT_FISHING)
+-                go->GetFishLoot(loot, this);
++            {
++                uint32 fillZone = go->GetFishLoot(loot, this);
++                if (fishingLootEntry)
++                    *fishingLootEntry = fillZone;
++            }
+             else if (loot_type == LOOT_FISHING_JUNK)
+                 go->GetFishLoot(loot, this, true);
+ 
+@@ -13840,11 +13847,12 @@ bool Player::IsBaseRuneSlotsOnCooldown(RuneType runeType) const
+     return true;
+ }
+ 
+-void Player::AutoStoreLoot(uint8 bag, uint8 slot, uint32 loot_id, LootStore const& store, bool broadcast)
++uint32 Player::AutoStoreLoot(uint8 bag, uint8 slot, uint32 loot_id, LootStore const& store, bool broadcast)
+ {
+     Loot loot;
+     loot.FillLoot (loot_id, store, this, true);
+ 
++    uint32 storedQuantity = 0;
+     uint32 max_slot = loot.GetMaxSlotInLootFor(this);
+     for (uint32 i = 0; i < max_slot; ++i)
+     {
+@@ -13864,7 +13872,10 @@ void Player::AutoStoreLoot(uint8 bag, uint8 slot, uint32 loot_id, LootStore cons
+ 
+         Item* pItem = StoreNewItem(dest, lootItem->itemid, true, lootItem->randomPropertyId);
+         SendNewItem(pItem, lootItem->count, false, false, broadcast);
++        storedQuantity += lootItem->count;
+     }
++
++    return storedQuantity;
+ }
+ 
+ LootItem* Player::StoreLootItem(uint8 lootSlot, Loot* loot, InventoryResult& msg)
+diff --git a/src/server/game/Entities/Player/Player.h b/src/server/game/Entities/Player/Player.h
+index eaf585917..c50e4c32d 100644
+--- a/src/server/game/Entities/Player/Player.h
++++ b/src/server/game/Entities/Player/Player.h
+@@ -1336,8 +1336,12 @@ public:
+     Item* EquipItem(uint16 pos, Item* pItem, bool update);
+     void AutoUnequipOffhandIfNeed(bool force = false);
+     bool StoreNewItemInBestSlots(uint32 item_id, uint32 item_count);
+-    void AutoStoreLoot(uint8 bag, uint8 slot, uint32 loot_id, LootStore const& store, bool broadcast = false);
+-    void AutoStoreLoot(uint32 loot_id, LootStore const& store, bool broadcast = false) { AutoStoreLoot(NULL_BAG, NULL_SLOT, loot_id, store, broadcast); }
++    uint32 AutoStoreLoot(uint8 bag, uint8 slot, uint32 loot_id, LootStore const& store,
++        bool broadcast = false);
++    uint32 AutoStoreLoot(uint32 loot_id, LootStore const& store, bool broadcast = false)
++    {
++        return AutoStoreLoot(NULL_BAG, NULL_SLOT, loot_id, store, broadcast);
++    }
+     LootItem* StoreLootItem(uint8 lootSlot, Loot* loot, InventoryResult& msg);
+     void UpdateLootAchievements(LootItem* item, Loot* loot);
+     void UpdateTitansGrip();
+@@ -1956,7 +1960,7 @@ public:
+     bool UpdateSkill(uint32 skill_id, uint32 step);
+     bool UpdateSkillPro(uint16 SkillId, int32 Chance, uint32 step);
+ 
+-    bool UpdateCraftSkill(uint32 spellid);
++    bool UpdateCraftSkill(uint32 spellid, uint32* professionSkillId = nullptr);
+     bool UpdateGatherSkill(uint32 SkillId, uint32 SkillValue, uint32 RedLevel, uint32 Multiplicator = 1);
+     bool UpdateFishingSkill();
+ 
+@@ -2291,7 +2295,7 @@ public:
+     PlayerMenu* PlayerTalkClass;
+     std::vector<ItemSetEffect*> ItemSetEff;
+ 
+-    void SendLoot(ObjectGuid guid, LootType loot_type);
++    void SendLoot(ObjectGuid guid, LootType loot_type, uint32* fishingLootEntry = nullptr);
+     void SendLootError(ObjectGuid guid, LootError error);
+     void SendLootRelease(ObjectGuid guid);
+     void SendNotifyLootItemRemoved(uint8 lootSlot);
+diff --git a/src/server/game/Entities/Player/PlayerUpdates.cpp b/src/server/game/Entities/Player/PlayerUpdates.cpp
+index 67930f605..3c980a2b3 100644
+--- a/src/server/game/Entities/Player/PlayerUpdates.cpp
++++ b/src/server/game/Entities/Player/PlayerUpdates.cpp
+@@ -827,10 +827,13 @@ bool Player::UpdateGatherSkill(uint32 SkillId, uint32 SkillValue,
+     return false;
+ }
+ 
+-bool Player::UpdateCraftSkill(uint32 spellid)
++bool Player::UpdateCraftSkill(uint32 spellid, uint32* professionSkillId)
+ {
+     LOG_DEBUG("entities.player.skills", "UpdateCraftSkill spellid {}", spellid);
+ 
++    if (professionSkillId)
++        *professionSkillId = 0;
++
+     SkillLineAbilityMapBounds bounds = sSpellMgr->GetSkillLineAbilityMapBounds(spellid);
+ 
+     for (SkillLineAbilityMap::const_iterator _spell_idx = bounds.first;
+@@ -838,6 +841,9 @@ bool Player::UpdateCraftSkill(uint32 spellid)
+     {
+         if (_spell_idx->second->SkillLine)
+         {
++            if (professionSkillId && IsProfessionSkill(_spell_idx->second->SkillLine))
++                *professionSkillId = _spell_idx->second->SkillLine;
++
+             uint32 SkillValue =
+                 GetPureSkillValue(_spell_idx->second->SkillLine);
+ 
+diff --git a/src/server/game/Scripting/ScriptDefines/PlayerScript.cpp b/src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
+index 5fb008665..3454f4b5f 100644
+--- a/src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
++++ b/src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
+@@ -21,6 +21,7 @@
+ #include "World.h"
+ 
+ #include <algorithm>
++#include <atomic>
+ 
+ void ScriptMgr::OnPlayerBeforeDurabilityRepair(Player* player, ObjectGuid npcGUID, ObjectGuid itemGUID, float& discountMod, uint8 guildBank)
+ {
+@@ -924,6 +925,19 @@ void ScriptMgr::OnPlayerSetSkill(Player* player, uint32 skillId, uint32 value, u
+     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_SET_SKILL, script->OnPlayerSetSkill(player, skillId, value, max, step, newValue));
+ }
+ 
++void ScriptMgr::OnPlayerProfessionAction(Player* player, uint32 actionKind, uint32 skillId, uint32 contextId,
++    uint32 quantity)
++{
++    static std::atomic<uint32> nextActionToken { 0 };
++
++    uint32 actionToken = 0;
++    while (!actionToken)
++        actionToken = nextActionToken.fetch_add(1, std::memory_order_relaxed) + 1;
++
++    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_PROFESSION_ACTION,
++        script->OnPlayerProfessionAction(player, actionKind, skillId, contextId, quantity, actionToken));
++}
++
+ bool ScriptMgr::OnPlayerCanResurrect(Player* player)
+ {
+     CALL_ENABLED_BOOLEAN_HOOKS(PlayerScript, PLAYERHOOK_CAN_RESURRECT, !script->OnPlayerCanResurrect(player));
+diff --git a/src/server/game/Scripting/ScriptDefines/PlayerScript.h b/src/server/game/Scripting/ScriptDefines/PlayerScript.h
+index 3c3ec7d2f..ab8b2ef36 100644
+--- a/src/server/game/Scripting/ScriptDefines/PlayerScript.h
++++ b/src/server/game/Scripting/ScriptDefines/PlayerScript.h
+@@ -221,9 +221,25 @@ enum PlayerHook
+     PLAYERHOOK_ON_GET_REPUTATION_PRICE_DISCOUNT,
+     PLAYERHOOK_ON_LEARN_TAXI_NODE,
+     PLAYERHOOK_ON_BEFORE_GET_LEVEL_FOR_XP_GAIN,
++    PLAYERHOOK_ON_PROFESSION_ACTION,
+     PLAYERHOOK_END
+ };
+ 
++// Stable action identifiers exposed to scripts by OnPlayerProfessionAction.
++// Context is the recipe spell, gameobject entry, creature entry, fishing area,
++// fishing-hole entry, input item, input item, or target item respectively.
++enum ProfessionActionKind
++{
++    PROFESSION_ACTION_CRAFT = 1,
++    PROFESSION_ACTION_GATHER_GAMEOBJECT = 2,
++    PROFESSION_ACTION_GATHER_CREATURE = 3,
++    PROFESSION_ACTION_FISHING_AREA = 4,
++    PROFESSION_ACTION_FISHING_HOLE = 5,
++    PROFESSION_ACTION_PROSPECT = 6,
++    PROFESSION_ACTION_MILL = 7,
++    PROFESSION_ACTION_DISENCHANT = 8
++};
++
+ class PlayerScript : public ScriptObject
+ {
+ protected:
+@@ -798,6 +814,8 @@ public:
+     virtual void OnPlayerBeforeUpdateSkill(Player* /*player*/, uint32 /*skillId*/, uint32& /*value*/, uint32 /*max*/, uint32 /*step*/) { }
+     virtual void OnPlayerUpdateSkill(Player* /*player*/, uint32 /*skillId*/, uint32 /*value*/, uint32 /*max*/, uint32 /*step*/, uint32 /*newValue*/) { }
+     virtual void OnPlayerSetSkill(Player* /*player*/, uint32 /*skillId*/, uint32 /*value*/, uint32 /*max*/, uint32 /*step*/, uint32 /*newValue*/) { }
++    virtual void OnPlayerProfessionAction(Player* /*player*/, uint32 /*actionKind*/, uint32 /*skillId*/,
++        uint32 /*contextId*/, uint32 /*quantity*/, uint32 /*actionToken*/) { }
+ 
+     /**
+      * @brief This hook is called, to avoid player resurrect
+diff --git a/src/server/game/Scripting/ScriptMgr.h b/src/server/game/Scripting/ScriptMgr.h
+index e9c6292d2..03e88ccc8 100644
+--- a/src/server/game/Scripting/ScriptMgr.h
++++ b/src/server/game/Scripting/ScriptMgr.h
+@@ -485,6 +485,7 @@ public: /* PlayerScript */
+     void OnPlayerBeforeUpdateSkill(Player* player, uint32 skill_id, uint32& value, uint32 max, uint32 step);
+     void OnPlayerUpdateSkill(Player* player, uint32 skillId, uint32 value, uint32 max, uint32 step, uint32 newValue);
+     void OnPlayerSetSkill(Player* player, uint32 skillId, uint32 value, uint32 max, uint32 step, uint32 newValue);
++    void OnPlayerProfessionAction(Player* player, uint32 actionKind, uint32 skillId, uint32 contextId, uint32 quantity);
+     bool OnPlayerCanResurrect(Player* player);
+     bool OnPlayerCanGiveLevel(Player* player, uint8 newLevel);
+     void OnPlayerSendListInventory(Player* player, ObjectGuid vendorGuid, uint32& vendorEntry);
+diff --git a/src/server/game/Spells/Spell.cpp b/src/server/game/Spells/Spell.cpp
+index 399e76617..e2c0959c2 100644
+--- a/src/server/game/Spells/Spell.cpp
++++ b/src/server/game/Spells/Spell.cpp
+@@ -578,6 +578,10 @@ Spell::Spell(Unit* caster, SpellInfo const* info, TriggerCastFlags triggerFlags,
+     m_selfContainer = nullptr;
+     m_referencedFromCurrentSpell = false;
+     m_executedCurrently = false;
++    m_professionActionKind = 0;
++    m_professionActionSkillId = 0;
++    m_professionActionContextId = 0;
++    m_professionActionQuantity = 0;
+     m_needComboPoints = m_spellInfo->NeedsComboPoints();
+     m_comboPointGain = 0;
+     m_comboTarget = nullptr;
+@@ -4057,6 +4061,10 @@ void Spell::_cast(bool skipCheck)
+     }
+ 
+     CallScriptAfterCastHandlers();
++    // Immediate and channeled casts have processed their initial effects. Delayed
++    // casts retain the action until every missile target has been processed.
++    if (m_spellState != SPELL_STATE_DELAYED)
++        SendProfessionAction();
+ 
+     if (modOwner)
+         modOwner->SetSpellModTakingSpell(this, false);
+@@ -4093,6 +4101,50 @@ void Spell::_cast(bool skipCheck)
+             caster->AI()->OnSpellCast(GetSpellInfo());
+ }
+ 
++void Spell::RecordProfessionAction(uint32 actionKind, uint32 skillId, uint32 contextId, uint32 quantity,
++    bool accumulateQuantity)
++{
++    if (!actionKind || !skillId || !contextId || !quantity)
++        return;
++
++    if (!m_professionActionKind)
++    {
++        m_professionActionKind = actionKind;
++        m_professionActionSkillId = skillId;
++        m_professionActionContextId = contextId;
++        m_professionActionQuantity = quantity;
++        return;
++    }
++
++    if (!accumulateQuantity || m_professionActionKind != actionKind ||
++        m_professionActionSkillId != skillId || m_professionActionContextId != contextId)
++        return;
++
++    if (quantity > UINT32_MAX - m_professionActionQuantity)
++        m_professionActionQuantity = UINT32_MAX;
++    else
++        m_professionActionQuantity += quantity;
++}
++
++void Spell::SendProfessionAction()
++{
++    Player* player = m_caster->ToPlayer();
++    if (!player || !m_professionActionKind)
++        return;
++
++    uint32 actionKind = m_professionActionKind;
++    uint32 skillId = m_professionActionSkillId;
++    uint32 contextId = m_professionActionContextId;
++    uint32 quantity = m_professionActionQuantity;
++
++    m_professionActionKind = 0;
++    m_professionActionSkillId = 0;
++    m_professionActionContextId = 0;
++    m_professionActionQuantity = 0;
++
++    sScriptMgr->OnPlayerProfessionAction(player, actionKind, skillId, contextId, quantity);
++}
++
+ void Spell::handle_immediate()
+ {
+     // start channeling if applicable
+@@ -4226,6 +4278,8 @@ uint64 Spell::handle_delayed(uint64 t_offset)
+         // spell is finished, perform some last features of the spell here
+         _handle_finish_phase();
+ 
++        // Aggregate all successful effects from this cast into one action.
++        SendProfessionAction();
+         finish(true);                                       // successfully finish spell cast
+ 
+         // return zero, spell is finished now
+diff --git a/src/server/game/Spells/Spell.h b/src/server/game/Spells/Spell.h
+index a956597a0..13f7aacbc 100644
+--- a/src/server/game/Spells/Spell.h
++++ b/src/server/game/Spells/Spell.h
+@@ -497,6 +497,8 @@ public:
+     void setState(uint32 state) { m_spellState = state; }
+ 
+     void DoCreateItem(uint8 effIndex, uint32 itemId);
++    void RecordProfessionAction(uint32 actionKind, uint32 skillId, uint32 contextId, uint32 quantity,
++        bool accumulateQuantity = false);
+     void WriteSpellGoTargets(WorldPacket* data);
+     void WriteAmmoToPacket(WorldPacket* data);
+ 
+@@ -616,7 +618,8 @@ public:
+     void TriggerGlobalCooldown();
+     void CancelGlobalCooldown();
+ 
+-    void SendLoot(ObjectGuid guid, LootType loottype);
++    bool SendLoot(ObjectGuid guid, LootType loottype);
++    void SendProfessionAction();
+ 
+     Unit* const m_caster;
+ 
+@@ -664,6 +667,10 @@ public:
+     // These vars are used in both delayed spell system and modified immediate spell system
+     bool m_referencedFromCurrentSpell;                  // mark as references to prevent deleted and access by dead pointers
+     bool m_executedCurrently;                           // mark as executed to prevent deleted and access by dead pointers
++    uint32 m_professionActionKind;
++    uint32 m_professionActionSkillId;
++    uint32 m_professionActionContextId;
++    uint32 m_professionActionQuantity;
+     bool m_needComboPoints;
+     uint8 m_applyMultiplierMask;
+     float m_damageMultipliers[3];
+diff --git a/src/server/game/Spells/SpellEffects.cpp b/src/server/game/Spells/SpellEffects.cpp
+index 5f5699493..522378ddf 100644
+--- a/src/server/game/Spells/SpellEffects.cpp
++++ b/src/server/game/Spells/SpellEffects.cpp
+@@ -1780,7 +1780,18 @@ void Spell::DoCreateItem(uint8 /*effIndex*/, uint32 itemId)
+ 
+         // we succeeded in creating at least one item, so a levelup is possible
+         if (SelfCast)
+-            player->UpdateCraftSkill(m_spellInfo->Id);
++        {
++            uint32 professionSkillId = 0;
++            player->UpdateCraftSkill(m_spellInfo->Id, &professionSkillId);
++
++            // A few valid recipe items teach spells missing from SkillLineAbility.dbc.
++            // Their crafted output still carries the authoritative profession requirement.
++            if (!professionSkillId && IsProfessionSkill(pProto->RequiredSkill))
++                professionSkillId = pProto->RequiredSkill;
++
++            if (professionSkillId && !m_spellInfo->IsLootCrafting())
++                RecordProfessionAction(PROFESSION_ACTION_CRAFT, professionSkillId, m_spellInfo->Id, addNumber, true);
++        }
+     }
+ }
+ 
+@@ -1815,6 +1826,7 @@ void Spell::EffectCreateItem2(SpellEffIndex effIndex)
+     // special case: fake item replaced by generate using spell_loot_template
+     if (m_spellInfo->IsLootCrafting())
+     {
++        uint32 storedQuantity = 0;
+         if (itemId)
+         {
+             if (!player->HasItemCount(itemId))
+@@ -1825,10 +1837,25 @@ void Spell::EffectCreateItem2(SpellEffIndex effIndex)
+             player->DestroyItemCount(itemId, count, true);
+ 
+             // create some random items
+-            player->AutoStoreLoot(m_spellInfo->Id, LootTemplates_Spell);
++            storedQuantity = player->AutoStoreLoot(m_spellInfo->Id, LootTemplates_Spell);
+         }
+         else
+-            player->AutoStoreLoot(m_spellInfo->Id, LootTemplates_Spell);    // create some random items
++            storedQuantity = player->AutoStoreLoot(m_spellInfo->Id, LootTemplates_Spell);
++
++        if (storedQuantity)
++        {
++            SkillLineAbilityMapBounds bounds = sSpellMgr->GetSkillLineAbilityMapBounds(m_spellInfo->Id);
++            for (SkillLineAbilityMap::const_iterator itr = bounds.first; itr != bounds.second; ++itr)
++            {
++                uint32 professionSkillId = itr->second->SkillLine;
++                if (IsProfessionSkill(professionSkillId))
++                {
++                    RecordProfessionAction(PROFESSION_ACTION_CRAFT, professionSkillId, m_spellInfo->Id,
++                        storedQuantity, true);
++                    break;
++                }
++            }
++        }
+     }
+     /// @todo: ExecuteLogEffectCreateItem(i, m_spellInfo->Effects[i].ItemType);
+ }
+@@ -1848,7 +1875,21 @@ void Spell::EffectCreateRandomItem(SpellEffIndex /*effIndex*/)
+     }
+ 
+     // create some random items
+-    player->AutoStoreLoot(m_spellInfo->Id, LootTemplates_Spell);
++    uint32 storedQuantity = player->AutoStoreLoot(m_spellInfo->Id, LootTemplates_Spell);
++    if (storedQuantity)
++    {
++        SkillLineAbilityMapBounds bounds = sSpellMgr->GetSkillLineAbilityMapBounds(m_spellInfo->Id);
++        for (SkillLineAbilityMap::const_iterator itr = bounds.first; itr != bounds.second; ++itr)
++        {
++            uint32 professionSkillId = itr->second->SkillLine;
++            if (IsProfessionSkill(professionSkillId))
++            {
++                RecordProfessionAction(PROFESSION_ACTION_CRAFT, professionSkillId, m_spellInfo->Id,
++                    storedQuantity, true);
++                break;
++            }
++        }
++    }
+     /// @todo: ExecuteLogEffectCreateItem(i, m_spellInfo->Effects[i].ItemType);
+ }
+ 
+@@ -2026,11 +2067,11 @@ void Spell::EffectEnergizePct(SpellEffIndex effIndex)
+     m_caster->EnergizeBySpell(unitTarget, m_spellInfo->Id, gain, power);
+ }
+ 
+-void Spell::SendLoot(ObjectGuid guid, LootType loottype)
++bool Spell::SendLoot(ObjectGuid guid, LootType loottype)
+ {
+     Player* player = m_caster->ToPlayer();
+     if (!player)
+-        return;
++        return false;
+ 
+     if (gameObjTarget)
+     {
+@@ -2039,43 +2080,43 @@ void Spell::SendLoot(ObjectGuid guid, LootType loottype)
+         {
+             LOG_ERROR("spells.effect", "Possible hacking attempt: Player {} [{}] tried to loot a gameobject [{}] which is on respawn time without being in GM mode!",
+                 player->GetName(), player->GetGUID().ToString(), gameObjTarget->GetGUID().ToString());
+-            return;
++            return false;
+         }
+         // special case, already has GossipHello inside so return and avoid calling twice
+         if (gameObjTarget->GetGoType() == GAMEOBJECT_TYPE_GOOBER)
+         {
+             gameObjTarget->Use(m_caster);
+-            return;
++            return false;
+         }
+ 
+         if (sScriptMgr->OnGossipHello(player, gameObjTarget))
+-            return;
++            return false;
+ 
+         if (gameObjTarget->AI()->GossipHello(player, false))
+-            return;
++            return false;
+ 
+         switch (gameObjTarget->GetGoType())
+         {
+             case GAMEOBJECT_TYPE_DOOR:
+                 gameObjTarget->UseDoorOrButton(0, false, player);
+-                return;
++                return false;
+             case GAMEOBJECT_TYPE_BUTTON:
+                 gameObjTarget->UseDoorOrButton(0, false, player);
+ 
+                 // Xinef: properly link possible traps
+                 if (uint32 trapEntry = gameObjTarget->GetGOInfo()->button.linkedTrap)
+                     gameObjTarget->TriggeringLinkedGameObject(trapEntry, player);
+-                return;
++                return false;
+             case GAMEOBJECT_TYPE_QUESTGIVER:
+                 player->PrepareGossipMenu(gameObjTarget, gameObjTarget->GetGOInfo()->questgiver.gossipID, true);
+                 player->SendPreparedGossip(gameObjTarget);
+-                return;
++                return false;
+ 
+             case GAMEOBJECT_TYPE_SPELL_FOCUS:
+                 // triggering linked GO
+                 if (uint32 trapEntry = gameObjTarget->GetGOInfo()->spellFocus.linkedTrapId)
+                     gameObjTarget->TriggeringLinkedGameObject(trapEntry, m_caster);
+-                return;
++                return false;
+ 
+             case GAMEOBJECT_TYPE_CHEST:
+                 // triggering linked GO
+@@ -2090,6 +2131,7 @@ void Spell::SendLoot(ObjectGuid guid, LootType loottype)
+ 
+     // Send loot
+     player->SendLoot(guid, loottype);
++    return player->GetLootGUID() == guid;
+ }
+ 
+ void Spell::EffectOpenLock(SpellEffIndex effIndex)
+@@ -2174,8 +2216,9 @@ void Spell::EffectOpenLock(SpellEffIndex effIndex)
+         return;
+     }
+ 
++    bool lootSent = false;
+     if (gameObjTarget)
+-        SendLoot(guid, LOOT_SKINNING);
++        lootSent = SendLoot(guid, LOOT_SKINNING);
+     else if (itemTarget)
+     {
+         itemTarget->SetFlag(ITEM_FIELD_FLAGS, ITEM_FIELD_FLAG_UNLOCKED);
+@@ -2192,10 +2235,16 @@ void Spell::EffectOpenLock(SpellEffIndex effIndex)
+             if (gameObjTarget)
+             {
+                 // Allow one skill-up until respawned
+-                if (!gameObjTarget->IsInSkillupList(player->GetGUID()))
++                if (lootSent && !gameObjTarget->IsInSkillupList(player->GetGUID()))
+                 {
+                     gameObjTarget->AddToSkillupList(player->GetGUID());
+                     player->UpdateGatherSkill(skillId, pureSkillValue, reqSkillValue);
++
++                    if (skillId == SKILL_HERBALISM || skillId == SKILL_MINING)
++                    {
++                        RecordProfessionAction(PROFESSION_ACTION_GATHER_GAMEOBJECT, skillId,
++                            gameObjTarget->GetEntry(), 1);
++                    }
+                 }
+ 
+             }
+@@ -3058,9 +3107,11 @@ void Spell::EffectEnchantItemPerm(SpellEffIndex effIndex)
+     }
+     else
+     {
++        uint32 professionSkillId = 0;
++
+         // do not increase skill if vellum used
+         if (!(m_CastItem && m_CastItem->GetTemplate()->HasFlag(ITEM_FLAG_NO_REAGENT_COST)))
+-            p_caster->UpdateCraftSkill(m_spellInfo->Id);
++            p_caster->UpdateCraftSkill(m_spellInfo->Id, &professionSkillId);
+ 
+         uint32 enchant_id = m_spellInfo->Effects[effIndex].MiscValue;
+         if (!enchant_id)
+@@ -3101,6 +3152,9 @@ void Spell::EffectEnchantItemPerm(SpellEffIndex effIndex)
+ 
+         item_owner->RemoveTradeableItem(itemTarget);
+         itemTarget->ClearSoulboundTradeable(item_owner);
++
++        if (professionSkillId)
++            RecordProfessionAction(PROFESSION_ACTION_CRAFT, professionSkillId, m_spellInfo->Id, 1);
+     }
+ }
+ 
+@@ -3165,6 +3219,17 @@ void Spell::EffectEnchantItemPrismatic(SpellEffIndex effIndex)
+ 
+     item_owner->RemoveTradeableItem(itemTarget);
+     itemTarget->ClearSoulboundTradeable(item_owner);
++
++    SkillLineAbilityMapBounds bounds = sSpellMgr->GetSkillLineAbilityMapBounds(m_spellInfo->Id);
++    for (SkillLineAbilityMap::const_iterator itr = bounds.first; itr != bounds.second; ++itr)
++    {
++        uint32 professionSkillId = itr->second->SkillLine;
++        if (IsProfessionSkill(professionSkillId))
++        {
++            RecordProfessionAction(PROFESSION_ACTION_CRAFT, professionSkillId, m_spellInfo->Id, 1);
++            break;
++        }
++    }
+ }
+ 
+ void Spell::EffectEnchantItemTmp(SpellEffIndex effIndex)
+@@ -4661,7 +4726,12 @@ void Spell::EffectDisEnchant(SpellEffIndex /*effIndex*/)
+     if (Player* caster = m_caster->ToPlayer())
+     {
+         caster->UpdateCraftSkill(m_spellInfo->Id);
+-        caster->SendLoot(itemTarget->GetGUID(), LOOT_DISENCHANTING);
++        ObjectGuid targetGuid = itemTarget->GetGUID();
++        uint32 targetEntry = itemTarget->GetEntry();
++        caster->SendLoot(targetGuid, LOOT_DISENCHANTING);
++
++        if (caster->GetLootGUID() == targetGuid)
++            RecordProfessionAction(PROFESSION_ACTION_DISENCHANT, SKILL_ENCHANTING, targetEntry, 1);
+     }
+ 
+     // item will be removed at disenchanting end
+@@ -5083,6 +5153,7 @@ void Spell::EffectSkinning(SpellEffIndex /*effIndex*/)
+     if (!m_caster->IsPlayer())
+         return;
+ 
++    Player* player = m_caster->ToPlayer();
+     Creature* creature = unitTarget->ToCreature();
+     int32 targetLevel = creature->GetLevel();
+ 
+@@ -5090,14 +5161,18 @@ void Spell::EffectSkinning(SpellEffIndex /*effIndex*/)
+ 
+     creature->RemoveUnitFlag(UNIT_FLAG_SKINNABLE);
+     creature->SetDynamicFlag(UNIT_DYNFLAG_LOOTABLE);
+-    m_caster->ToPlayer()->SendLoot(creature->GetGUID(), LOOT_SKINNING);
++    ObjectGuid creatureGuid = creature->GetGUID();
++    player->SendLoot(creatureGuid, LOOT_SKINNING);
+ 
+     int32 reqValue = targetLevel < 10 ? 0 : targetLevel < 20 ? (targetLevel - 10) * 10 : targetLevel * 5;
+ 
+-    int32 skillValue = m_caster->ToPlayer()->GetPureSkillValue(skill);
++    int32 skillValue = player->GetPureSkillValue(skill);
+ 
+     // Double chances for elites
+-    m_caster->ToPlayer()->UpdateGatherSkill(skill, skillValue, reqValue, creature->isElite() ? 2 : 1);
++    player->UpdateGatherSkill(skill, skillValue, reqValue, creature->isElite() ? 2 : 1);
++
++    if (player->GetLootGUID() == creatureGuid && IsProfessionSkill(skill))
++        RecordProfessionAction(PROFESSION_ACTION_GATHER_CREATURE, skill, creature->GetEntry(), 1);
+ }
+ 
+ void Spell::EffectCharge(SpellEffIndex /*effIndex*/)
+@@ -5718,7 +5793,12 @@ void Spell::EffectProspecting(SpellEffIndex /*effIndex*/)
+         p_caster->UpdateGatherSkill(SKILL_JEWELCRAFTING, SkillValue, reqSkillValue);
+     }
+ 
+-    m_caster->ToPlayer()->SendLoot(itemTarget->GetGUID(), LOOT_PROSPECTING);
++    ObjectGuid targetGuid = itemTarget->GetGUID();
++    uint32 targetEntry = itemTarget->GetEntry();
++    p_caster->SendLoot(targetGuid, LOOT_PROSPECTING);
++
++    if (p_caster->GetLootGUID() == targetGuid)
++        RecordProfessionAction(PROFESSION_ACTION_PROSPECT, SKILL_JEWELCRAFTING, targetEntry, 5);
+ }
+ 
+ void Spell::EffectMilling(SpellEffIndex /*effIndex*/)
+@@ -5743,7 +5823,12 @@ void Spell::EffectMilling(SpellEffIndex /*effIndex*/)
+         p_caster->UpdateGatherSkill(SKILL_INSCRIPTION, SkillValue, reqSkillValue);
+     }
+ 
+-    m_caster->ToPlayer()->SendLoot(itemTarget->GetGUID(), LOOT_MILLING);
++    ObjectGuid targetGuid = itemTarget->GetGUID();
++    uint32 targetEntry = itemTarget->GetEntry();
++    p_caster->SendLoot(targetGuid, LOOT_MILLING);
++
++    if (p_caster->GetLootGUID() == targetGuid)
++        RecordProfessionAction(PROFESSION_ACTION_MILL, SKILL_INSCRIPTION, targetEntry, 5);
+ }
+ 
+ void Spell::EffectSkill(SpellEffIndex /*effIndex*/)
+diff --git a/src/server/scripts/Spells/spell_generic.cpp b/src/server/scripts/Spells/spell_generic.cpp
+index 746218d62..253b49ca7 100644
+--- a/src/server/scripts/Spells/spell_generic.cpp
++++ b/src/server/scripts/Spells/spell_generic.cpp
+@@ -27,6 +27,7 @@
+ #include "GridNotifiers.h"
+ #include "Group.h"
+ #include "Pet.h"
++#include "PlayerScript.h"
+ #include "ReputationMgr.h"
+ #include "SkillDiscovery.h"
+ #include "SpellAuraEffects.h"
+@@ -2208,7 +2209,11 @@ class spell_gen_profession_research : public SpellScript
+         if (uint32 discoveredSpellId = GetExplicitDiscoverySpell(spellId, caster))
+             caster->learnSpell(discoveredSpellId);
+ 
+-        caster->UpdateCraftSkill(spellId);
++        uint32 professionSkillId = 0;
++        caster->UpdateCraftSkill(spellId, &professionSkillId);
++
++        if (professionSkillId)
++            GetSpell()->RecordProfessionAction(PROFESSION_ACTION_CRAFT, professionSkillId, spellId, 1);
+     }
+ 
+     void Register() override

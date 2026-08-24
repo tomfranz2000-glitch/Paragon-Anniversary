@@ -1,10 +1,9 @@
 --[[
     Paragon Rework: collection experience bonuses (milestones 300 + 325)
 
-    Additive paragon XP bonuses from collections, one modifier for all of
-    them (the mediator merges position-1 returns first-registered-wins, so
-    multiple modifier subscribers would starve each other — every future
-    collection bonus belongs HERE):
+    Additive paragon XP bonuses from collections, consolidated into one factor
+    so collection state is scanned and rounded once. This modifier composes in
+    registration order with independent progression modifiers:
 
         milestone 300: +1.0% per collected mount     (ParagonMountSpells)
         milestone 325: +0.5% per collected companion (ParagonCompanionSpells)
@@ -18,9 +17,10 @@
     mirrors exactly) into account_collection_spell and learnSpell()s them
     onto every character at login.
 
-    Applies to CREATURE / SKILL experience via OnExperienceCalculated.
-    ACHIEVEMENT experience is deliberately excluded (one-time rewards stay
-    flat — user spec); QUEST experience likewise since the 2026-08-18 nerf
+    Applies to CREATURE / CRAFT / GATHER / PROCESS experience via
+    OnExperienceCalculated. ACHIEVEMENT and SKILLUP experience are deliberately
+    excluded (one-time rewards stay flat — user spec); QUEST experience
+    likewise since the 2026-08-18 nerf
     pass (quests grant their full base XP flat, no multipliers). The
     banked pre-80 achievement payout bypasses the event (stays flat). Creature
     kill shares use the same OnExperienceCalculated path, so every personal XP
@@ -39,6 +39,7 @@ end
 
 -- paragon_hook.lua EXPERIENCE_SOURCE: achievement rewards stay flat
 local SOURCE_ACHIEVEMENT = 2
+local SOURCE_SKILLUP = 3
 -- quests stay flat too (2026-08-18 nerf pass): quest paragon XP is the
 -- quest's full base XP (paragon_config_experience_quest, populated by
 -- Tools/populate_quest_paragon_xp.py from QuestXP.dbc, no level
@@ -121,7 +122,8 @@ end
 
 RegisterMediatorEvent("OnExperienceCalculated", function(player, paragon, source_type, xp)
     local ok, ret = pcall(function()
-        if source_type == SOURCE_ACHIEVEMENT or source_type == SOURCE_QUEST or not xp then
+        if source_type == SOURCE_ACHIEVEMENT or source_type == SOURCE_SKILLUP
+                or source_type == SOURCE_QUEST or not xp then
             return
         end
         local factor = ParagonCollectionXP_Factor(player, paragon)

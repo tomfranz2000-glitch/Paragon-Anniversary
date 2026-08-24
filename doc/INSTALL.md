@@ -21,13 +21,15 @@ while the generators execute.
 3. Build the core and complete the normal AzerothCore database import.
 4. Apply `sql/01_create_database.sql` through
    `sql/05_apply_anniversary_config.sql` in order.
-5. Install `serverside/paragon` and the ALE extensions under the configured
+5. Generate and `--check` profession XP data against the populated world
+   database and the rebuilt server's active DBCs.
+6. Install `serverside/paragon` and the ALE extensions under the configured
    `ALE.ScriptPath`.
-6. Run the two class-data generators, then the unified client/content
+7. Run the two class-data generators, then the unified client/content
    generator.
-7. Populate collection and quest XP.
-8. Install the 27-file addon and build the 14-file UI-art archive.
-9. Verify the installation, then start the worldserver and fully restart the
+8. Populate collection and quest XP.
+9. Install the 27-file addon and build the 14-file UI-art archive.
+10. Verify the installation, then start the worldserver and fully restart the
    client.
 
 ## 1. Prerequisites and repository layout
@@ -134,20 +136,28 @@ Apply each patch from the repository named in the second column:
 | Patch | Apply from | Required |
 |---|---|---|
 | `patches/01-core-paragon.patch` | AzerothCore root | Yes |
+| `patches/02-core-profession-xp.patch` | AzerothCore root | Yes; apply after `01` |
 | `patches/04-core-docker-build-jobs.patch` | AzerothCore root | Docker builds; allows a safe `CBUILD_JOBS` cap |
 | `patches/05-mod-ale.patch` | `modules/mod-ale` | Yes |
 | `patches/06-AccountBound.patch` | `modules/AccountBound` | When using the pinned AccountBound title-sync module |
+| `patches/07-mod-ale-profession-xp.patch` | `modules/mod-ale` | Yes; apply after `05` |
 
 Example:
 
 ```bash
 cd /path/to/azerothcore
 git apply /path/to/Paragon-Anniversary/patches/01-core-paragon.patch
+git apply /path/to/Paragon-Anniversary/patches/02-core-profession-xp.patch
 git apply /path/to/Paragon-Anniversary/patches/04-core-docker-build-jobs.patch
 
 cd modules/mod-ale
 git apply /path/to/Paragon-Anniversary/patches/05-mod-ale.patch
+git apply /path/to/Paragon-Anniversary/patches/07-mod-ale-profession-xp.patch
 ```
+
+Keep the core patches in exact `01` → `02` → `04` order and the ALE patches in
+exact `05` → `07` order. The profession layers depend on the preceding base
+patches and must not be folded into a different sequence.
 
 Build the core only after all applicable patches and modules are present. For
 Docker, pass a conservative build width when needed, for example
@@ -170,7 +180,7 @@ SOURCE sql/05_apply_anniversary_config.sql;
 ```
 
 There is no required `sql/06` file. `02_create_tables.sql` is the single
-authoritative schema and creates all 20 base and Anniversary tables, including
+authoritative schema and creates all 21 base and Anniversary tables, including
 the five collection/codex support tables that older installs lacked.
 
 Do not load `sql/11-13-2026_Example_Data.sql` on an existing realm. It is a
@@ -187,7 +197,45 @@ WHERE field IN ('BASE_MAX_EXPERIENCE', 'MINIMUM_LEVEL_FOR_PARAGON_XP');
 The Anniversary preset contains at least 22 settings, starts at 30,000 XP,
 and permits Paragon XP only from character level 80.
 
-## 4. Install server Lua and ALE extensions
+## 4. Generate profession data and install server Lua
+
+The populated `acore_world` database and the exact DBC set used by the rebuilt
+worldserver are both valuation inputs. Generate and verify the profession data
+**before** copying the Lua package so the deployed resolver cannot be stale:
+
+On a fresh Docker installation, first populate AzerothCore's client-data volume
+and create the rebuilt worldserver container without starting it. The generator
+uses `docker cp`, which works with this stopped container but cannot address a
+container that does not exist:
+
+```bash
+cd /path/to/azerothcore
+docker compose up --no-deps ac-client-data-init
+docker compose create --no-deps ac-worldserver
+docker container inspect ac-worldserver >/dev/null
+cd /path/to/Paragon-Anniversary
+```
+
+The client-data initializer must exit successfully. `docker compose create`
+does not start the worldserver, so the new binary still cannot load incomplete
+SQL or Lua during this step. Existing installations may reuse their stopped or
+running `ac-worldserver` container for generation.
+
+```bash
+python tools/gen_profession_xp.py \
+    --dbc-container ac-worldserver --database-container ac-database
+python tools/gen_profession_xp.py \
+    --dbc-container ac-worldserver --database-container ac-database --check
+```
+
+For DBCs stored on the host, replace `--dbc-container` with
+`--dbc-dir /path/to/server/data/dbc`; the populated world database must still
+be available through `--database-container`. The first command rewrites
+`serverside/paragon/modules/paragon_profession_data.lua` and its audit; the
+second must exit successfully. If the server Lua was copied earlier, copy the
+regenerated package again. See
+[`tools/PROFESSION_XP_GENERATOR.md`](../tools/PROFESSION_XP_GENERATOR.md) for the
+data model, overrides, caps, and audit contract.
 
 Set `ALE.ScriptPath` to one directory containing both `paragon/` and
 `extensions/`.
@@ -313,8 +361,9 @@ The quest generator replaces `paragon_config_experience_quest` with the full
 level-appropriate QuestXP values. Both tools are rerunnable, but their values
 are loaded by the server at startup.
 
-The remaining `gen_*` scripts are content-maintenance tools. Their generated
-Lua/addon outputs are already committed and are not part of a fresh install.
+The remaining `gen_*` scripts are content-maintenance tools. Profession XP is
+the exception: section 4 deliberately regenerates it from this installation's
+populated world database and active DBCs before server Lua is copied.
 
 ## 7. Install the client addon and art
 
@@ -407,19 +456,25 @@ FROM acore_world.achievement_dbc
 WHERE ID BETWEEN 19000 AND 19304;
 SELECT COUNT(*) FROM acore_ale.paragon_collectible_spell_xp;
 SELECT COUNT(*) FROM acore_ale.paragon_config_experience_quest;
+SELECT owner_type, COUNT(*) AS profession_rows, SUM(pending_xp) AS pending_xp
+FROM acore_ale.paragon_profession_progress
+GROUP BY owner_type;
 ```
 
 On the authoritative `main` branch, the custom-spell coverage audit reports 743
 client-generated records plus 21 deliberately server-only records. Both title
 rows must be present on a fresh host. The solo-achievement query must report
 96 rows and 1,045 total points; Paragon reads those authoritative world rows
-for custom achievement XP. `profession_xp_per_point` must report `50`.
+for custom achievement XP. `profession_xp_per_point` must report `1000`.
 
 At login, the console must not report `SetData`/`GetData` errors. A level-80
-character should earn 50 base Paragon XP per profession skill point (before
-personal XP bonuses), while weapon and riding skill-ups earn none. A lower-level
-character should not earn Paragon XP. The first Paragon level requires 30,000
-XP with the Anniversary preset.
+character should earn exactly 1000 Paragon XP for each genuinely new profession
+high-water point, unaffected by personal XP bonuses; weapon and riding skill-ups
+earn none. A point earned below level 80 should be recorded as pending and paid
+once at eligibility, while existing skills on upgrade must only seed their
+high-water marks. Successful craft/gather/process actions use the generated
+resource valuation and do receive the normal personal XP modifier exactly once.
+The first Paragon level requires 30,000 XP with the Anniversary preset.
 
 ### Client verification
 
@@ -480,11 +535,92 @@ the schema.
 
 Back up the three AzerothCore databases plus `acore_ale`, update Paragon's
 `main` branch and the pinned patches together, and restore `mod-transmog` to
-`31633595cad7b12042b6484ffe3ea34f355b9821`. Rerun the base SQL (it is
-idempotent except for the documented Anniversary preset), regenerate the two
-class intermediate files, rerun `paragon_client_patch.py --apply`, repopulate
-collection/quest XP, rebuild `patch-W.MPQ`, and recopy the addon. Finish with a
-worldserver and full client restart.
+`31633595cad7b12042b6484ffe3ea34f355b9821`.
+
+Use this order for an in-place Docker upgrade:
+
+1. Keep `ac-database` and the existing worldserver available while taking the
+   backup. Apply `sql/01_create_database.sql` through
+   `sql/05_apply_anniversary_config.sql`; the migration is rerunnable, while
+   `05` intentionally reapplies the Anniversary preset.
+2. Build the patched worldserver/authserver images. Do not recreate either
+   container yet, so generation can still read the known active DBC volume.
+
+   ```bash
+   cd /path/to/azerothcore
+   docker compose build ac-worldserver ac-authserver
+   ```
+
+3. Run `tools/gen_profession_xp.py` and its `--check` command from section 4.
+4. Stage a **complete** copy of `serverside/paragon/` and
+   `modules/mod-ale/src/LuaEngine/extensions/` outside the live
+   `ALE.ScriptPath`. Verify that the staged tree contains
+   `paragon/modules/paragon_profession_xp.lua`,
+   `paragon/modules/paragon_profession_data.lua`, and
+   `extensions/ObjectVariables.ext`.
+
+   The following stages a full replacement beside the live directory, on the
+   same filesystem. It also preserves unrelated scripts already installed
+   under `lua_scripts/`. Run the command blocks in steps 4–8 in the same shell
+   session so the two task-specific path variables remain available:
+
+   ```bash
+   cd /path/to/azerothcore
+   stage_root=$(mktemp -d "$PWD/env/dist/etc/lua-stage.XXXXXX")
+   mkdir -p "$stage_root/lua_scripts"
+   cp -a env/dist/etc/lua_scripts/. "$stage_root/lua_scripts/"
+   if [ -d "$stage_root/lua_scripts/paragon" ]; then
+       mv "$stage_root/lua_scripts/paragon" "$stage_root/paragon.previous"
+   fi
+   if [ -d "$stage_root/lua_scripts/extensions" ]; then
+       mv "$stage_root/lua_scripts/extensions" "$stage_root/extensions.previous"
+   fi
+   cp -a /path/to/Paragon-Anniversary/serverside/paragon \
+         "$stage_root/lua_scripts/"
+   cp -a modules/mod-ale/src/LuaEngine/extensions \
+         "$stage_root/lua_scripts/"
+   test -f "$stage_root/lua_scripts/paragon/modules/paragon_profession_xp.lua"
+   test -f "$stage_root/lua_scripts/paragon/modules/paragon_profession_data.lua"
+   test -f "$stage_root/lua_scripts/extensions/ObjectVariables.ext"
+   ```
+
+5. Stop `ac-worldserver` before changing the bind-mounted script path. This is
+   mandatory when `ALE.AutoReload` is enabled: a live, file-by-file copy can
+   reload a partial 1.6 MB generated module or register event 76 against the
+   old binary.
+6. While the worldserver is stopped, replace/synchronize both live directories
+   from the verified staging tree in one maintenance window. Copying only the
+   changed Lua files is unsupported. Recopy the complete Paragon directory and
+   the complete ALE extensions directory. These same-filesystem renames leave
+   a timestamped rollback tree intact:
+
+   ```bash
+   cd /path/to/azerothcore
+   docker compose stop ac-worldserver
+   live_scripts="$PWD/env/dist/etc/lua_scripts"
+   previous_scripts="${live_scripts}.previous.$(date +%Y%m%d%H%M%S)"
+   mv "$live_scripts" "$previous_scripts"
+   mv "$stage_root/lua_scripts" "$live_scripts"
+   ```
+
+7. With the worldserver still stopped and the client fully closed, regenerate
+   the two class intermediate files, run `paragon_client_patch.py --apply`,
+   repopulate collection/quest XP, rebuild `patch-W.MPQ`, and recopy the addon.
+8. Force-recreate the worldserver from the newly built image, then verify the
+   boot log before admitting players:
+
+   ```bash
+   cd /path/to/azerothcore
+   docker compose up -d --no-deps --force-recreate ac-worldserver
+   docker compose logs --tail=200 ac-worldserver
+   ```
+
+   The log must show a successful world initialization and profession-module
+   load with no schema, event-registration, or Lua compile error. Keep
+   `$previous_scripts` until this verification succeeds; it is the rollback
+   source if startup fails.
+9. Force-recreate `ac-authserver` if its image was rebuilt, then fully restart
+   the client.
 
 For implementation details and hard-won compatibility notes, see
 [`doc/CORE_PATCHES.md`](CORE_PATCHES.md).

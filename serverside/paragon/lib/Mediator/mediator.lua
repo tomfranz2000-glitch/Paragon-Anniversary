@@ -64,7 +64,8 @@ end
 --- Triggers an event and collects return values from registered callbacks.
 ---
 --- @param eventName string The event name to trigger
---- @param params table Named parameters with optional: arguments, defaults
+--- @param params table Named parameters with optional: arguments, defaults,
+--- reduce (the argument position to pass through callbacks sequentially)
 --- @return ... Merged return values
 ---
 function Mediator:On(eventName, params)
@@ -72,6 +73,18 @@ function Mediator:On(eventName, params)
     
     local args = params.arguments or {}
     local defaults = params.defaults or {}
+
+    -- Reducer mode is opt-in so existing mediator events retain their
+    -- first-non-nil merge contract. It is used for modifier pipelines where
+    -- every subscriber must see the value returned by the previous one.
+    if params.reduce ~= nil then
+        local reduceArgument = tonumber(params.reduce)
+        if not reduceArgument or reduceArgument < 1
+                or reduceArgument ~= math.floor(reduceArgument) then
+            error("Mediator: 'reduce' must be a positive integer argument position")
+        end
+        return self:_Reduce(eventName, args, defaults, reduceArgument)
+    end
     
     -- No callbacks registered
     if not self.events[eventName] then
@@ -95,6 +108,46 @@ function Mediator:On(eventName, params)
         return self:_MergeReturns(allReturns, defaults)
     end
     
+    return self:_UnpackDefaults(defaults)
+end
+
+---
+--- Passes one argument through every callback in registration order.
+--- A nil callback result is a no-op; a scalar result or position 1 of a
+--- returned table becomes the value passed to the next callback.
+---
+--- @param eventName string The event name to reduce
+--- @param args table Callback arguments
+--- @param defaults table Default return values
+--- @param argumentIndex integer Argument position containing the reduced value
+--- @return any The final reduced value
+--- @private
+---
+function Mediator:_Reduce(eventName, args, defaults, argumentIndex)
+    local current = args[argumentIndex]
+    if current == nil then
+        current = defaults[1]
+    end
+
+    local callbacks = self.events[eventName] or {}
+    for _, callback in ipairs(callbacks) do
+        args[argumentIndex] = current
+        local success, result = pcall(callback, unpack(args))
+        if not success then
+            error("Mediator: Error in callback for '" .. eventName .. "': " .. tostring(result))
+        end
+
+        if type(result) == "table" then
+            result = result[1]
+        end
+        if result ~= nil then
+            current = result
+        end
+    end
+
+    if current ~= nil then
+        return current
+    end
     return self:_UnpackDefaults(defaults)
 end
 

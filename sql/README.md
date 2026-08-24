@@ -39,6 +39,7 @@ After running all migration files, verify the installation by checking that the 
 - `acore_ale.paragon_config_experience_achievement`
 - `acore_ale.paragon_config_experience_skill`
 - `acore_ale.paragon_config_experience_quest`
+- `acore_ale.paragon_profession_progress`
 - `acore_ale.character_paragon`
 - `acore_ale.account_paragon`
 - `acore_ale.character_paragon_stats`
@@ -60,14 +61,17 @@ SELECT COUNT(*) FROM acore_ale.paragon_config;
 -- Should return at least 22 rows
 SELECT value FROM acore_ale.paragon_config
 WHERE field = 'UNIVERSAL_SKILL_EXPERIENCE';
--- Should return 50
+-- Should return 1000
 ```
 
 `04_insert_default_config.sql` is non-destructive and only fills missing rows.
 Run `05_apply_anniversary_config.sql` once when upgrading an existing database;
 it intentionally replaces previous configuration values with this fork's realm
-preset and updates the skill-override column default to 50. Existing rows in
-`paragon_config_experience_skill` remain deliberate per-skill overrides.
+preset, updates the legacy skill-override column default to 1000, creates the
+profession ledger, and seeds current account/character high-water values without
+retroactive XP. Profession skill-up awards use the universal exact value; legacy
+per-skill rows are retained for schema compatibility but do not override that
+flat high-water contract.
 
 ## Generated world content
 

@@ -61,7 +61,8 @@ function Repository:VerifyDatabaseSchema()
         "paragon_config_experience_quest",
         "character_paragon",
         "account_paragon",
-        "character_paragon_stats"
+        "character_paragon_stats",
+        "paragon_profession_progress"
     }
 
     local missing_tables = {}
@@ -76,12 +77,12 @@ function Repository:VerifyDatabaseSchema()
         print("The database '" .. Constants.DB_NAME .. "' does not exist.")
         print("")
         print("SOLUTION:")
-        print("  1. Navigate to: lua-paragon-anniversary/sql/")
-        print("  2. Edit and Execute 01_create_database.sql")
-        print("  3. Execute all other SQL files (02 through 06)")
+        print("  1. Navigate to this repository's sql/ directory")
+        print("  2. Edit and execute 01_create_database.sql")
+        print("  3. Execute 02, 03, 04, and 05 in order")
         print("  4. Reload Eluna scripts: .reload eluna")
         print("")
-        print("See sql/README.md or INSTALLATION.md for detailed instructions.")
+        print("See sql/README.md or doc/INSTALL.md for detailed instructions.")
         print("=================================================================")
         error("[Paragon System] Database does not exist. Please install SQL migrations.")
     end
@@ -110,11 +111,11 @@ function Repository:VerifyDatabaseSchema()
         end
         print("")
         print("SOLUTION:")
-        print("  1. Navigate to: lua_scripts/game/systems/paragon/sql/")
-        print("  2. Execute all SQL files in order (01 through 06)")
+        print("  1. Navigate to this repository's sql/ directory")
+        print("  2. Execute 01, 02, 03, 04, and 05 in order")
         print("  3. Reload Eluna scripts: .reload eluna")
         print("")
-        print("See sql/README.md or INSTALLATION.md for detailed instructions.")
+        print("See sql/README.md or doc/INSTALL.md for detailed instructions.")
         print("=================================================================")
         error("[Paragon System] Database schema verification failed. Please install SQL migrations.")
     end
@@ -430,11 +431,12 @@ end
 ---
 --- Deletes all paragon data for a character.
 ---
---- Removes both character paragon progression and all invested statistics.
+--- Removes character progression, invested statistics, and character-scoped
+--- profession mastery/pending XP.
 --- Called when a character is deleted from the account.
 ---
---- Only executes if LEVEL_LINKED_TO_ACCOUNT is disabled (character-level paragon).
---- When account-linked paragon is enabled, data is preserved across character deletion.
+--- Account progression and owner_type=1 profession rows are intentionally
+--- preserved for the account's remaining characters.
 ---
 --- @param guid The character's GUID (used if character-linked)
 ---
@@ -445,6 +447,10 @@ function Repository:DeleteParagonData(guid)
 
     CharDBExecute(sf(Constants.QUERY.DEL_PARA_CHARACTER, Constants.DB_NAME, guid))
     CharDBExecute(sf(Constants.QUERY.DEL_PARA_STAT, Constants.DB_NAME, guid))
+    CharDBExecute(sf(
+        Constants.QUERY.DEL_PROFESSION_PROGRESS_CHARACTER,
+        Constants.DB_NAME,
+        guid))
 end
 
 -- ============================================================================

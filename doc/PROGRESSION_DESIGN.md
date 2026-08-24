@@ -12,10 +12,10 @@ Paragon is an **endgame-onward, effectively unbounded progression track** that
 rewards playing the whole game, not just repeating the most efficient activity.
 Two lanes deliver that:
 
-- **Repeatable sources** (mobs, quests) pay what the content is worth by
+- **Repeatable sources** (mobs, quests, crafting, gathering, and processing) pay what the content is worth by
   Blizzard's own difficulty math — endgame pays best per hour, but nothing is
   worthless.
-- **One-time sources** (achievements now; more later) are where completionism
+- **One-time sources** (achievements and profession mastery) are where completionism
   concentrates: they pay once, so chasing breadth beats repeating one farm.
 
 ---
@@ -61,14 +61,30 @@ Kept as the completionist backbone. Replace the flat 100 with
 paragon level early on), a 50-point meta = 50,000 (≈ four raid bosses).
 Inherently one-time, inherently breadth-rewarding.
 
-### Profession skill-ups — 50 base XP per point
+### Profession mastery — 1000 flat XP per new point
 
-Every profession skill point gained grants **50 base XP**
-(`UNIVERSAL_SKILL_EXPERIENCE = 50`) before personal Paragon XP bonuses. Weapon,
-defense, riding, and lockpicking gains do not qualify. Naturally bounded: a
-full 1–450 profession is about 22.5k base XP, then that profession is done.
-Profession *mastery* one-time bonuses may still come later in the future-sources
-batch, on top of ticks.
+Each genuinely new profession high-water point grants **exactly 1000 XP**
+(`UNIVERSAL_SKILL_EXPERIENCE = 1000`). It bypasses every personal and global XP
+multiplier. In account-linked mode the high-water mark is account-wide, so an
+alt, an unlearn/relearn cycle, or a replayed callback cannot farm it; in
+character-linked mode it follows that character instead. A complete 1–450
+profession is therefore 450,000 XP. Weapon, defense, riding, and lockpicking
+never qualify. Existing skill values are seeded without retroactive payment,
+while genuine future points earned below level 80 are durably banked and paid
+once the account becomes eligible.
+
+### Profession actions — resource-valued repeatable XP
+
+Successful crafting, gathering, fishing, prospecting, milling, and
+disenchanting use server-authoritative action context and a generated valuation
+table. Craft values derive from consumed materials; gather values derive from
+expected primary yield; processing values derive from consumed inputs. Content
+tier, bounded scarcity/cooldown adjustments, fixed-per-action semantics, and a
+hard per-unit quantity clamp keep output-count recipes, AoE loot, and malformed
+payloads from inflating awards. These repeatable awards cross the normal
+`OnExperienceCalculated` multiplier boundary exactly once. Unknown or
+skill-mismatched actions grant nothing. Repeatable profession actions are not
+banked below level 80; they simply begin awarding Paragon XP at eligibility.
 
 ### Future one-time sources (deferred, not in scope)
 
@@ -84,12 +100,13 @@ Paragon XP accrues **only at level 80** (`MINIMUM_LEVEL_FOR_PARAGON_XP = 80`).
 
 **Pre-80 banking (placeholder solution, decided).** One-time XP rewards earned
 before level 80 are **banked** and paid out as a single lump sum on reaching 80.
-For now that covers **achievements only** (the only one-time source in scope);
-future one-time sources inherit the same banking mechanic when they ship.
+This covers achievements and future profession high-water points. Other future
+one-time sources inherit the same banking mechanic when they ship.
 
-Regular-lane sources (mobs, quests) are deliberately **not** banked: before 80
-they pay their normal reward — character XP that fuels leveling — so nothing is
-being missed. Paragon pay for them simply begins at 80.
+Regular-lane sources (mobs, quests, and repeatable profession actions) are
+deliberately **not** banked. Mob and quest rewards continue feeding normal
+character leveling where applicable; repeatable profession Paragon pay simply
+begins at level 80.
 
 Known residue, accepted for now: banking is forward-only — achievements earned
 before the feature ships (and existing level-80s) get nothing retroactively
@@ -173,23 +190,27 @@ Related config changes:
 3. **Daily-quest stacking** — 25 dailies ≈ 500k on quest values above; fine as
    a strong daily ritual, but it anchors the income assumption. If it dwarfs
    dungeon play, tune quest values, not the curve.
-4. **Profession powerleveling** — buying mats and spamming 1–450 ≈ 22.5k base
-   XP in an hour. Bounded per profession, but check it doesn't beat playing.
+4. **Profession economy loops** — a full new 1–450 high-water track is 450k
+   exact XP once per progression scope. Track repeatable action XP/hour by
+   profession and tier; tune generated resource weights rather than the curve.
 5. Bot accrual noise in the paragon tables.
 
 ## Implementation map (brief)
 
 The progression logic remains under `paragon/modules/`. Exact creature values
-and reward attribution use the required ALE additions carried by
-`patches/05-mod-ale.patch`:
+and reward attribution use the ALE additions carried by
+`patches/05-mod-ale.patch`; profession action attribution additionally requires
+`patches/02-core-profession-xp.patch` and `patches/07-mod-ale-profession-xp.patch`:
 
 | Piece | Mechanism |
 |---|---|
 | At-level creature/quest values | ALE `Creature:GetAtLevelXPReward()` for kills; generated QuestXP data for quests |
 | Achievement points scaling | `OnBeforeUpdatePlayerExperience` for achievement source |
 | Level-80 gate | existing `MINIMUM_LEVEL_FOR_PARAGON_XP` config |
-| Pre-80 banking | `banked_experience` column on the paragon character table; achievement hook accrues to it below 80; level-80 event pays it out through the normal XP pipeline |
+| Achievement banking | `banked_experience` column on the paragon character table; achievement hook accrues to it below 80; level-80 event pays it out through the normal XP pipeline |
 | Party credit | ALE event 75, forwarded from `OnPlayerRewardKillRewarder`, once per core-credited recipient |
+| Profession actions | ALE event 76; generated `paragon_profession_data.Resolve()` valuation; per-session action-token dedupe |
+| Profession mastery | ALE event 62; `paragon_profession_progress` high-water/pending ledger; flat award path |
 | Curve | recompute next-level cost on `OnParagonLevelChanged` via `SetExperienceForNextLevel` |
 
 ## Open decisions

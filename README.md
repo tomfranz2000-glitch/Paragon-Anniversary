@@ -62,7 +62,7 @@ The **Paragon System** introduces an endgame progression mechanic for AzerothCor
   - **Combat**: Hit, Crit, Haste, Expertise, Armor Penetration
   - **Stats**: Strength, Agility, Stamina, Resistances, HP/Mana
   - **Auras**: Loot, Reputation, and Experience bonuses
-- **🎮 Multi-Source Experience**: Gain paragon XP from creatures, achievements, quests, and profession skill-ups
+- **🎮 Multi-Source Experience**: Gain paragon XP from creatures, achievements, quests, profession actions, and profession skill mastery
 - **💰 Point System**: Earn points to distribute among available statistics
 - **🔄 Client Integration**: In-game interface via custom addon
 - **💾 Persistent**: All progress saved to database
@@ -98,6 +98,8 @@ The **Paragon System** introduces an endgame progression mechanic for AzerothCor
 ### 🧩 **Module System**
 
 - `modules/paragon_anniversary.lua` - Experience & level-up mechanics
+- `modules/paragon_profession_xp.lua` - Profession actions, skill high-water marks, and pre-80 banks
+- `modules/paragon_profession_data.lua` - Generated craft/gather/process valuations
 - Extensible via Mediator pattern for custom features
 
 </td>
@@ -118,6 +120,9 @@ The **Paragon System** introduces an endgame progression mechanic for AzerothCor
 **Account Data (Account-Linked Mode):**
 - `account_paragon` - Account-wide levels & XP
 - `character_paragon_stats` - Stats always per character
+
+**Profession Progress:**
+- `paragon_profession_progress` - Durable per-scope skill high-water marks and pending XP
 
 </td>
 </tr>
@@ -165,11 +170,12 @@ and the server's transmog configuration defaults. Do not substitute upstream
 
 1. 🧩 Install the pinned modules and apply every applicable patch.
 2. 🗄️ Import `sql/01_create_database.sql` through `sql/05_apply_anniversary_config.sql`.
-3. 📁 Copy `serverside/paragon` and the mod-ale extensions into `ALE.ScriptPath`.
-4. ⚙️ Run `gen_class_talents.py --emit`, `gen_class_trainers.py --emit`, then `paragon_client_patch.py --apply`.
-5. 🎁 Populate collection and quest XP with the two dedicated tools.
-6. 🎮 Install the addon, build `patch-W.MPQ`, and verify the generated `patch-X` archives.
-7. 🔄 Restart the worldserver and fully restart the client.
+3. 🛠️ Generate and `--check` profession XP data against the populated world database and active DBCs.
+4. 📁 Copy the regenerated `serverside/paragon` package and mod-ale extensions into `ALE.ScriptPath`.
+5. ⚙️ Run `gen_class_talents.py --emit`, `gen_class_trainers.py --emit`, then `paragon_client_patch.py --apply`.
+6. 🎁 Populate collection and quest XP with the two dedicated tools.
+7. 🎮 Install the addon, build `patch-W.MPQ`, and verify the generated `patch-X` archives.
+8. 🔄 Restart the worldserver and fully restart the client.
 
 > [!IMPORTANT]
 > Clone `https://github.com/azerothcore/mod-eluna.git` with the explicit target
@@ -208,6 +214,10 @@ Configure the system via database entries in `paragon_config`:
 | `MINIMUM_LEVEL_FOR_PARAGON_XP` | Minimum character level to earn paragon XP | `80` |
 | `LEVEL_UP_ANIMATION` | Spell visual played on a Paragon level-up | `64785` |
 
+With `ENABLE_PARAGON_SYSTEM=0`, no source awards XP and new profession skill
+gains are not added to the pre-level bank. Pending XP earned before disabling
+remains durable and can be paid after the system is enabled again.
+
 ### Progression Settings
 
 | Field | Description | Default |
@@ -225,7 +235,7 @@ Configure the system via database entries in `paragon_config`:
 |-------|-------------|---------|
 | `UNIVERSAL_CREATURE_EXPERIENCE` | Default XP for creature kills | `50` |
 | `UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE` | Default XP for achievements | `100` |
-| `UNIVERSAL_SKILL_EXPERIENCE` | Base XP per profession skill point gained | `50` |
+| `UNIVERSAL_SKILL_EXPERIENCE` | Exact, unmodified XP per new profession high-water point | `1000` |
 | `UNIVERSAL_QUEST_EXPERIENCE` | Fallback XP for quest completion | `1` |
 | `PARAGON_ACHIEVEMENT_POINT_XP` | XP awarded per achievement point | `1000` |
 | `PARAGON_GROUP_XP_DISTANCE` | Maximum distance for party kill-XP sharing | `74` |
@@ -372,6 +382,8 @@ paragon/
 │       └── SMH.ext
 ├── modules/
 │   ├── paragon_anniversary.lua     # Experience & level-up mechanics
+│   ├── paragon_profession_xp.lua   # Profession actions and mastery ledger
+│   ├── paragon_profession_data.lua # Generated profession valuations
 │   └── README.md                   # Module documentation
 ├── paragon_constant.lua            # Constants, SQL queries, stat enums
 ├── paragon_repository.lua          # Database access layer (Singleton)

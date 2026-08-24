@@ -178,7 +178,7 @@ return {
                 `experience` INT(11) NOT NULL DEFAULT 0,
 
                 PRIMARY KEY (`guid`)
-            );
+            ) ENGINE=InnoDB;
         ]],
 
         --- Account Paragon Table (Account-Linked)
@@ -190,7 +190,21 @@ return {
                 `experience` INT(11) NOT NULL DEFAULT 0,
 
                 PRIMARY KEY (`account_id`)
-            );
+            ) ENGINE=InnoDB;
+        ]],
+
+        --- Durable profession skill-point ownership and pre-level banking.
+        --- owner_type: 0 = character GUID, 1 = account ID.
+        CR_TABLE_PROFESSION_PROGRESS = [[
+            CREATE TABLE IF NOT EXISTS `%s`.`paragon_profession_progress` (
+                `owner_type` TINYINT UNSIGNED NOT NULL,
+                `owner_id` INT UNSIGNED NOT NULL,
+                `skill_id` SMALLINT UNSIGNED NOT NULL,
+                `high_water` SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+                `pending_xp` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+
+                PRIMARY KEY (`owner_type`, `owner_id`, `skill_id`)
+            ) ENGINE=InnoDB;
         ]],
 
         -- Select paragon level and experience for a character (character-linked)
@@ -210,6 +224,10 @@ return {
 
         -- Delete account paragon record
         DEL_PARA_ACCOUNT = "DELETE FROM `%s`.`account_paragon` WHERE account_id = %d;",
+
+        -- Delete only character-scoped profession mastery and pending XP.
+        -- Account-scoped rows belong to the account's remaining characters.
+        DEL_PROFESSION_PROGRESS_CHARACTER = "DELETE FROM `%s`.`paragon_profession_progress` WHERE owner_type = 0 AND owner_id = %d;",
 
         --- Character Paragon Statistics Table
         -- Stores stat points invested by each character
@@ -255,7 +273,7 @@ return {
         CR_TABLE_CONFIG_EXP_SKILL = [[
             CREATE TABLE IF NOT EXISTS `%s`.`paragon_config_experience_skill` (
                 `id` INT(11) NOT NULL,
-                `experience` INT(11) NOT NULL DEFAULT 50,
+                `experience` INT(11) NOT NULL DEFAULT 1000,
 
                 PRIMARY KEY (`id`)
             );
@@ -305,7 +323,7 @@ return {
             -- Experience Rewards (Universal Defaults)
             ('UNIVERSAL_CREATURE_EXPERIENCE', '50'),
             ('UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE', '100'),
-            ('UNIVERSAL_SKILL_EXPERIENCE', '50'),
+            ('UNIVERSAL_SKILL_EXPERIENCE', '1000'),
             ('UNIVERSAL_QUEST_EXPERIENCE', '1'),
             ('PARAGON_ACHIEVEMENT_POINT_XP', '1000'),
             ('PARAGON_GROUP_XP_DISTANCE', '74'),
@@ -393,5 +411,3 @@ return {
         }
     }
 }
-
-

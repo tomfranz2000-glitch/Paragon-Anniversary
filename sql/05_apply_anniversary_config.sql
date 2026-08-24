@@ -7,7 +7,45 @@
 -- ============================================================================
 
 ALTER TABLE `acore_ale`.`paragon_config_experience_skill`
-    MODIFY COLUMN `experience` INT(11) NOT NULL DEFAULT 50;
+    MODIFY COLUMN `experience` INT(11) NOT NULL DEFAULT 1000;
+
+-- The profession payout acknowledgement updates its progression row and
+-- pending ledger in one statement, so both tables must be transactional.
+ALTER TABLE `acore_ale`.`character_paragon` ENGINE=InnoDB;
+ALTER TABLE `acore_ale`.`account_paragon` ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_profession_progress` (
+    `owner_type` TINYINT UNSIGNED NOT NULL,
+    `owner_id` INT UNSIGNED NOT NULL,
+    `skill_id` SMALLINT UNSIGNED NOT NULL,
+    `high_water` SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    `pending_xp` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (`owner_type`, `owner_id`, `skill_id`)
+) ENGINE=InnoDB;
+
+ALTER TABLE `acore_ale`.`paragon_profession_progress` ENGINE=InnoDB;
+
+-- Seed both supported progression scopes from existing character skills.
+-- Re-running this migration is safe: it can only raise high-water and never
+-- creates pending XP, so historical points do not pay retroactively.
+INSERT INTO `acore_ale`.`paragon_profession_progress`
+    (`owner_type`, `owner_id`, `skill_id`, `high_water`, `pending_xp`)
+SELECT 1, c.`account`, cs.`skill`, MAX(cs.`value`), 0
+FROM `acore_characters`.`character_skills` cs
+JOIN `acore_characters`.`characters` c ON c.`guid` = cs.`guid`
+WHERE cs.`skill` IN (129,164,165,171,182,185,186,197,202,333,356,393,755,773)
+GROUP BY c.`account`, cs.`skill`
+ON DUPLICATE KEY UPDATE
+    `high_water` = GREATEST(`high_water`, VALUES(`high_water`));
+
+INSERT INTO `acore_ale`.`paragon_profession_progress`
+    (`owner_type`, `owner_id`, `skill_id`, `high_water`, `pending_xp`)
+SELECT 0, cs.`guid`, cs.`skill`, cs.`value`, 0
+FROM `acore_characters`.`character_skills` cs
+WHERE cs.`skill` IN (129,164,165,171,182,185,186,197,202,333,356,393,755,773)
+ON DUPLICATE KEY UPDATE
+    `high_water` = GREATEST(`high_water`, VALUES(`high_water`));
 
 INSERT INTO `acore_ale`.`paragon_config` (field, value) VALUES
 -- System Control
@@ -28,7 +66,7 @@ INSERT INTO `acore_ale`.`paragon_config` (field, value) VALUES
 -- Experience Rewards
 ('UNIVERSAL_CREATURE_EXPERIENCE', '50'),
 ('UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE', '100'),
-('UNIVERSAL_SKILL_EXPERIENCE', '50'),
+('UNIVERSAL_SKILL_EXPERIENCE', '1000'),
 ('UNIVERSAL_QUEST_EXPERIENCE', '1'),
 ('PARAGON_ACHIEVEMENT_POINT_XP', '1000'),
 ('PARAGON_GROUP_XP_DISTANCE', '74'),

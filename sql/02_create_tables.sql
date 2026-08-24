@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config_experience_achievement` (
 
 CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config_experience_skill` (
     `id` INT(11) NOT NULL,
-    `experience` INT(11) NOT NULL DEFAULT 50,
+    `experience` INT(11) NOT NULL DEFAULT 1000,
 
     PRIMARY KEY (`id`)
 );
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS `acore_ale`.`character_paragon` (
     `experience` INT(11) NOT NULL DEFAULT 0,
 
     PRIMARY KEY (`guid`)
-);
+) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS `acore_ale`.`account_paragon` (
     `account_id` INT(11) NOT NULL,
@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS `acore_ale`.`account_paragon` (
     `experience` INT(11) NOT NULL DEFAULT 0,
 
     PRIMARY KEY (`account_id`)
-);
+) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS `acore_ale`.`character_paragon_stats` (
     `guid` INT(11) NOT NULL,
@@ -101,6 +101,19 @@ CREATE TABLE IF NOT EXISTS `acore_ale`.`character_paragon_stats` (
 
     PRIMARY KEY (`guid`, `stat_id`)
 );
+
+-- owner_type: 0 = character-linked GUID, 1 = account-linked account ID.
+-- high_water makes skill-point rewards one-time; pending_xp banks genuine
+-- future gains earned before MINIMUM_LEVEL_FOR_PARAGON_XP.
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_profession_progress` (
+    `owner_type` TINYINT UNSIGNED NOT NULL,
+    `owner_id` INT UNSIGNED NOT NULL,
+    `skill_id` SMALLINT UNSIGNED NOT NULL,
+    `high_water` SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    `pending_xp` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (`owner_type`, `owner_id`, `skill_id`)
+) ENGINE=InnoDB;
 
 -- --------------------------------------------------------------------------
 -- Collection rewards and pre-minimum-level banking

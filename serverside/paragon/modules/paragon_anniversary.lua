@@ -189,12 +189,16 @@ end
 --- @return The modified experience value
 ---
 local function OnExperienceCalculated(player, paragon, source_type, specific_experience)
-    -- local patch (mount-xp composability): return ONLY when actually
-    -- modifying. The mediator merges position-1 returns first-registered-
-    -- wins, so the original unconditional `return specific_experience`
-    -- permanently starved every later-registered modifier subscriber
-    -- (paragon_mount_xp.lua). Polite convention: nil = no opinion.
+    -- Modifier subscribers compose sequentially. Return nil when this module
+    -- has no opinion so the current value passes to the next subscriber.
     if not player or not paragon then
+        return
+    end
+
+    -- Achievement, profession mastery, and quest awards are exact one-time
+    -- rewards. The common hook bypasses this event for them; retain this guard
+    -- as defense in depth for direct/custom event dispatches.
+    if source_type == 2 or source_type == 3 or source_type == 4 then
         return
     end
 

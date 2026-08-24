@@ -78,7 +78,8 @@ local success, msg = Mediator.On("Player_Login", {
 ```lua
 Mediator.On("EventName", {
     arguments = {arg1, arg2},    -- Data to pass to callbacks
-    defaults = {false, 0, ""}    -- Fallback values for nil returns
+    defaults = {false, 0, ""},   -- Fallback values for nil returns
+    reduce = nil                 -- Optional argument position to reduce
 })
 ```
 
@@ -110,6 +111,35 @@ local isValid = Mediator.On("Validate", {
 -- 
 -- Result:             100,  50,  25
 ```
+
+### 🔁 Sequential Modifier Pipelines
+
+Set `reduce` to the argument position that each callback modifies. Callbacks run
+in registration order; each receives the previous callback's result at that
+position. Returning `nil` is a no-op, and either a scalar or the first value in
+a returned table becomes the next value.
+
+```lua
+RegisterMediatorEvent("Calculate_Damage", function(attacker, target, damage)
+    if attacker.isCritical then
+        return damage * 2
+    end
+    return nil
+end)
+
+RegisterMediatorEvent("Calculate_Damage", function(attacker, target, damage)
+    return damage * (1 - target.armorReduction)
+end)
+
+local finalDamage = Mediator.On("Calculate_Damage", {
+    arguments = {player, enemy, 100},
+    defaults = {100},
+    reduce = 3
+})
+```
+
+Without `reduce`, mediator events retain the normal first-non-nil merge
+contract.
 
 ---
 
@@ -152,7 +182,8 @@ end)
 -- Usage in combat
 local finalDamage = Mediator.On("Calculate_Damage", {
     arguments = {player, enemy, 100},
-    defaults = {100}
+    defaults = {100},
+    reduce = 3
 })
 ```
 

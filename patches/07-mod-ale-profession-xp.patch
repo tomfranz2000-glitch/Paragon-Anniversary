@@ -1,0 +1,95 @@
+diff --git a/src/ALE_SC.cpp b/src/ALE_SC.cpp
+index 039636ebf1efd909ead3a0bc26c497db3b9e3931..0daf73fa3dee1680ce2240b5fd7cd4a320809365 100644
+--- a/src/ALE_SC.cpp
++++ b/src/ALE_SC.cpp
+@@ -666,6 +666,7 @@ public:
+         PLAYERHOOK_ON_CAN_UPDATE_SKILL,
+         PLAYERHOOK_ON_BEFORE_UPDATE_SKILL,
+         PLAYERHOOK_ON_UPDATE_SKILL,
++        PLAYERHOOK_ON_PROFESSION_ACTION,
+         PLAYERHOOK_CAN_RESURRECT,
+         PLAYERHOOK_ON_PLAYER_RELEASED_GHOST
+     }) { }
+@@ -1014,6 +1015,12 @@ public:
+         sALE->OnPlayerUpdateSkill(player, skill_id, value, max, step, new_value);
+     }
+ 
++    void OnPlayerProfessionAction(Player* player, uint32 actionKind, uint32 skillId, uint32 contextId,
++        uint32 quantity, uint32 actionToken) override
++    {
++        sALE->OnPlayerProfessionAction(player, actionKind, skillId, contextId, quantity, actionToken);
++    }
++
+     bool OnPlayerCanResurrect(Player* player) override
+     {
+         return sALE->CanPlayerResurrect(player);
+diff --git a/src/LuaEngine/Hooks.h b/src/LuaEngine/Hooks.h
+index 00e9405eae9705458876f9d6caf939329a38080f..155c7f0a7c54dad94454174df058b2aa9ebf053b 100644
+--- a/src/LuaEngine/Hooks.h
++++ b/src/LuaEngine/Hooks.h
+@@ -246,6 +246,12 @@ namespace Hooks
+         PLAYER_EVENT_ON_CAN_LEARN_TALENT                    =     74,       // (event, player, talentId, rank) - Can return false to prevent learning
+         // (event, player, creature, isDungeon, participantCount, isRaid)
+         PLAYER_EVENT_ON_KILL_REWARD                         =     75,
++        // actionKind/contextId: 1 recipe spell, 2 GO entry, 3 creature entry,
++        // 4 fishing area, 5 fishing-hole GO entry, 6/7 input item, 8 target item.
++        // quantity is crafted output units, 5 consumed prospect/mill inputs, or 1;
++        // actionToken is a non-zero process-local sequence token.
++        // (event, player, actionKind, skillId, contextId, quantity, actionToken)
++        PLAYER_EVENT_ON_PROFESSION_ACTION                   =     76,
+ 
+         PLAYER_EVENT_COUNT
+     };
+diff --git a/src/LuaEngine/LuaEngine.h b/src/LuaEngine/LuaEngine.h
+index a29738a2cc8d09532d7639193514577ca1d04704..288ff792241ba8e47d7dee0b89bece9312be7c59 100644
+--- a/src/LuaEngine/LuaEngine.h
++++ b/src/LuaEngine/LuaEngine.h
+@@ -503,6 +503,8 @@ public:
+     bool OnPlayerCanUpdateSkill(Player* player, uint32 skill_id);
+     void OnPlayerBeforeUpdateSkill(Player* player, uint32 skill_id, uint32& value, uint32 max, uint32 step);
+     void OnPlayerUpdateSkill(Player* player, uint32 skill_id, uint32 value, uint32 max, uint32 step, uint32 new_value);
++    void OnPlayerProfessionAction(Player* player, uint32 actionKind, uint32 skillId, uint32 contextId,
++        uint32 quantity, uint32 actionToken);
+     bool CanPlayerResurrect(Player* player);
+     void OnPlayerQuestAccept(Player* player, Quest const* quest);
+     void OnPlayerAuraApply(Player* player, Aura* aura);
+diff --git a/src/LuaEngine/hooks/PlayerHooks.cpp b/src/LuaEngine/hooks/PlayerHooks.cpp
+index 890bea5bcbf80d003077ddedcfd9546202479f00..5e0ee517bb8231034d8cf98f9d1785c363a8a96f 100644
+--- a/src/LuaEngine/hooks/PlayerHooks.cpp
++++ b/src/LuaEngine/hooks/PlayerHooks.cpp
+@@ -776,6 +776,19 @@ void ALE::OnPlayerUpdateSkill(Player* player, uint32 skill_id, uint32 value, uin
+     CallAllFunctions(PlayerEventBindings, key);
+ }
+ 
++void ALE::OnPlayerProfessionAction(Player* player, uint32 actionKind, uint32 skillId, uint32 contextId,
++    uint32 quantity, uint32 actionToken)
++{
++    START_HOOK(PLAYER_EVENT_ON_PROFESSION_ACTION);
++    Push(player);
++    Push(actionKind);
++    Push(skillId);
++    Push(contextId);
++    Push(quantity);
++    Push(actionToken);
++    CallAllFunctions(PlayerEventBindings, key);
++}
++
+ bool ALE::CanPlayerResurrect(Player* player)
+ {
+     START_HOOK_WITH_RETVAL(PLAYER_EVENT_ON_CAN_RESURRECT, true);
+diff --git a/src/LuaEngine/methods/GlobalMethods.h b/src/LuaEngine/methods/GlobalMethods.h
+index 3483db2a185e5825d3486403f08aca53a90b9572..9250d3f2dbcc7c42835d559cd3e51491e783b738 100644
+--- a/src/LuaEngine/methods/GlobalMethods.h
++++ b/src/LuaEngine/methods/GlobalMethods.h
+@@ -800,6 +800,11 @@ namespace LuaGlobalFunctions
+      *     PLAYER_EVENT_ON_CAN_LEARN_TALENT                     =     74,       // (event, player, talentId, rank) - Can return false to prevent learning
+      *     // (event, player, creature, isDungeon, participantCount, isRaid)
+      *     PLAYER_EVENT_ON_KILL_REWARD                          =     75,
++     *     // actionKind/contextId: 1 recipe, 2 GO, 3 creature, 4 area, 5 fishing hole,
++     *     // 6 prospect input, 7 mill input, 8 disenchant target. quantity is output units,
++     *     // five consumed inputs for 6/7, or one. actionToken is non-zero and process-local.
++     *     // (event, player, actionKind, skillId, contextId, quantity, actionToken)
++     *     PLAYER_EVENT_ON_PROFESSION_ACTION                    =     76,
+      * };
+      * </pre>
+      *
