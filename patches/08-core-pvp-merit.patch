@@ -1,0 +1,662 @@
+diff --git a/src/server/game/Battlefield/Battlefield.cpp b/src/server/game/Battlefield/Battlefield.cpp
+index fe312adfa..a1d7f30d5 100644
+--- a/src/server/game/Battlefield/Battlefield.cpp
++++ b/src/server/game/Battlefield/Battlefield.cpp
+@@ -309,16 +309,7 @@ bool Battlefield::IsPlayerInWarOrInvited(Player* player) const
+ 
+ bool Battlefield::IsPlayerInBattlefield(ObjectGuid guid) const
+ {
+-    if (!IsWarTime())
+-        return false;
+-
+-    // PlayersInWar is split into per-team sets, but a GUID alone does not indicate the team, so check both sets.
+-    // This also stays correct if an OnBattlefieldPlayerJoinWar handler reassigned the team GetTeamId() returns.
+-    for (uint8 team = 0; team < PVP_TEAMS_COUNT; ++team)
+-        if (PlayersInWar[team].count(guid))
+-            return true;
+-
+-    return false;
++    return IsWarTime() && HasPlayerInWar(guid);
+ }
+ 
+ void Battlefield::KickAfkPlayers()
+@@ -359,6 +350,7 @@ void Battlefield::StartBattle()
+ 
+     Timer = BattleTime;
+     Active = true;
++    sScriptMgr->OnBattlefieldWarStart(this);
+ 
+     // Schedule war-only periodic timers
+     _scheduler.Schedule(1s, BATTLEFIELD_TIMER_GROUP_WAR, [this](TaskContext context)
+@@ -1089,7 +1081,14 @@ bool BfCapturePoint::Update(uint32 diff)
+     if (OldState != State)
+     {
+         if (oldTeam != Team)
++        {
+             ChangeTeam(oldTeam);
++            if (Team != TEAM_NEUTRAL)
++                for (ObjectGuid const& playerGuid : ActivePlayers)
++                    if (Player* player = ObjectAccessor::FindPlayer(playerGuid))
++                        if (player->GetTeamId() == Team && Bf->IsPlayerInBattlefield(playerGuid))
++                            sScriptMgr->OnBattlefieldObjective(Bf, player, CapturePointEntry, 1);
++        }
+         return true;
+     }
+ 
+diff --git a/src/server/game/Battlefield/Battlefield.h b/src/server/game/Battlefield/Battlefield.h
+index aba66db48..4f115ef4b 100644
+--- a/src/server/game/Battlefield/Battlefield.h
++++ b/src/server/game/Battlefield/Battlefield.h
+@@ -232,6 +232,7 @@ public:
+ 
+     uint32 GetTypeId() const { return TypeId; }
+     uint32 GetZoneId() const { return ZoneId; }
++    uint32 GetMapId() const { return MapId; }
+ 
+     void TeamApplyBuff(TeamId team, uint32 spellId, uint32 spellId2 = 0);
+ 
+@@ -364,6 +365,16 @@ public:
+     PlayerTimerMap const& GetInvitedPlayersMap(TeamId teamId) const { return InvitedPlayers[teamId]; }
+     /// Returns the set of players actively fighting in the war (per team, read-only).
+     GuidUnorderedSet const& GetPlayersInWarSet(TeamId teamId) const { return PlayersInWar[teamId]; }
++    /// Returns true while a player remains in an active-war roster, including synchronous
++    /// end rewards after Active has been cleared but before the roster is settled.
++    bool HasPlayerInWar(ObjectGuid guid) const
++    {
++        for (uint8 team = 0; team < PVP_TEAMS_COUNT; ++team)
++            if (PlayersInWar[team].count(guid))
++                return true;
++
++        return false;
++    }
+ 
+     // Returns true if the player is enrolled as a participant in the currently active battle.
+     bool IsPlayerInBattlefield(ObjectGuid guid) const;
+diff --git a/src/server/game/Battlegrounds/Battleground.cpp b/src/server/game/Battlegrounds/Battleground.cpp
+index 9937f3441..415d4a939 100644
+--- a/src/server/game/Battlegrounds/Battleground.cpp
++++ b/src/server/game/Battlegrounds/Battleground.cpp
+@@ -1409,7 +1409,10 @@ bool Battleground::UpdatePlayerScore(Player* player, uint32 type, uint32 value,
+     if (type == SCORE_BONUS_HONOR && doAddHonor && isBattleground())
+         player->RewardHonor(nullptr, 1, value); // RewardHonor calls UpdatePlayerScore with doAddHonor = false
+     else
++    {
+         itr->second->UpdateScore(type, value);
++        sScriptMgr->OnBattlegroundPlayerScoreUpdate(this, player, type, value);
++    }
+ 
+     return true;
+ }
+diff --git a/src/server/game/Battlegrounds/BattlegroundScore.h b/src/server/game/Battlegrounds/BattlegroundScore.h
+index de0663cdc..59e07a319 100644
+--- a/src/server/game/Battlegrounds/BattlegroundScore.h
++++ b/src/server/game/Battlegrounds/BattlegroundScore.h
+@@ -61,9 +61,18 @@ struct AC_GAME_API BattlegroundScore
+ 
+     public:
+     [[nodiscard]] uint32 GetKillingBlows() const    { return KillingBlows; }
++    [[nodiscard]] uint32 GetDeaths() const          { return Deaths; }
++    [[nodiscard]] uint32 GetHonorableKills() const  { return HonorableKills; }
++    [[nodiscard]] uint32 GetBonusHonor() const      { return BonusHonor; }
+     [[nodiscard]] uint32 GetDamageDone() const      { return DamageDone; }
+     [[nodiscard]] uint32 GetHealingDone() const     { return HealingDone; }
+ 
++    [[nodiscard]] virtual uint32 GetAttr1() const { return 0; }
++    [[nodiscard]] virtual uint32 GetAttr2() const { return 0; }
++    [[nodiscard]] virtual uint32 GetAttr3() const { return 0; }
++    [[nodiscard]] virtual uint32 GetAttr4() const { return 0; }
++    [[nodiscard]] virtual uint32 GetAttr5() const { return 0; }
++
+     protected:
+     BattlegroundScore(ObjectGuid playerGuid) : PlayerGuid(playerGuid) { }
+     virtual ~BattlegroundScore() = default;
+@@ -102,16 +111,6 @@ struct AC_GAME_API BattlegroundScore
+     // For Logging purpose
+     virtual std::string ToString() const { return ""; }
+ 
+-    [[nodiscard]] uint32 GetDeaths() const          { return Deaths; }
+-    [[nodiscard]] uint32 GetHonorableKills() const  { return HonorableKills; }
+-    [[nodiscard]] uint32 GetBonusHonor() const      { return BonusHonor; }
+-
+-    [[nodiscard]] virtual uint32 GetAttr1() const { return 0; }
+-    [[nodiscard]] virtual uint32 GetAttr2() const { return 0; }
+-    [[nodiscard]] virtual uint32 GetAttr3() const { return 0; }
+-    [[nodiscard]] virtual uint32 GetAttr4() const { return 0; }
+-    [[nodiscard]] virtual uint32 GetAttr5() const { return 0; }
+-
+     ObjectGuid PlayerGuid;
+ 
+     // Default score, present in every type
+diff --git a/src/server/game/Entities/Player/Player.cpp b/src/server/game/Entities/Player/Player.cpp
+index e16a50836..6e14f4fe5 100644
+--- a/src/server/game/Entities/Player/Player.cpp
++++ b/src/server/game/Entities/Player/Player.cpp
+@@ -78,6 +78,7 @@
+ #include "SpellAuras.h"
+ #include "SpellMgr.h"
+ #include "StringConvert.h"
++#include "StringFormat.h"
+ #include "TicketMgr.h"
+ #include "Tokenize.h"
+ #include "Trainer.h"
+@@ -94,6 +95,8 @@
+ #include "WorldState.h"
+ #include "WorldStateDefines.h"
+ #include "WorldStatePackets.h"
++#include <atomic>
++#include <chrono>
+ #include <cmath>
+ #include <queue>
+ 
+@@ -150,6 +153,23 @@ enum CharacterCustomizeFlags
+ 
+ static uint32 copseReclaimDelay[MAX_DEATH_COUNT] = { 30, 60, 120 };
+ 
++namespace
++{
++// PvPMerit bridge tokens are strings so Lua never rounds a uint64 identifier.
++std::atomic<uint64> PvPHonorTokenSequence{ 0 };
++
++std::string MakePvPHonorToken(Player const* player, Unit const* victim, uint8 honorSource)
++{
++    auto const epochMicros = std::chrono::duration_cast<std::chrono::microseconds>(
++        GameTime::GetSystemTime().time_since_epoch()).count();
++    uint64 const sequence = ++PvPHonorTokenSequence;
++    uint64 const victimGuid = victim ? victim->GetGUID().GetRawValue() : 0;
++
++    return Acore::StringFormat("honor:{}:{}:{}:{}:{}", player->GetGUID().GetRawValue(), victimGuid, honorSource,
++        epochMicros, sequence);
++}
++}
++
+ // we can disable this warning for this since it only
+ // causes undefined behavior when passed to the base class constructor
+ #ifdef _MSC_VER
+@@ -6287,7 +6307,7 @@ void Player::RewardExtraBonusTalentPoints(uint32 bonusTalentPoints)
+ ///Calculate the amount of honor gained based on the victim
+ ///and the size of the group for which the honor is divided
+ ///An exact honor value can also be given (overriding the calcs)
+-bool Player::RewardHonor(Unit* uVictim, uint32 groupsize, int32 honor, bool awardXP)
++bool Player::RewardHonor(Unit* uVictim, uint32 groupsize, int32 honor, bool awardXP, uint8 pvpContextId)
+ {
+     // do not reward honor in arenas, but enable onkill spellproc
+     if (InArena())
+@@ -6408,6 +6428,8 @@ bool Player::RewardHonor(Unit* uVictim, uint32 groupsize, int32 honor, bool awar
+ 
+     ApplyModUInt32Value(PLAYER_FIELD_TODAY_CONTRIBUTION, honor, true);
+ 
++    bool generatedBattlegroundXP = false;
++
+     // Xinef: Battleground experience
+     if (awardXP)
+         if (Battleground* bg = GetBattleground())
+@@ -6419,9 +6441,36 @@ bool Player::RewardHonor(Unit* uVictim, uint32 groupsize, int32 honor, bool awar
+                 uint32 xp = static_cast<uint32>(honor * (3 + GetLevel() * 0.30f) * sWorld->getRate(RATE_XP_BATTLEGROUND_BONUS));
+                 sScriptMgr->OnPlayerGiveXP(this, xp, nullptr, PlayerXPSource::XPSOURCE_BATTLEGROUND);
+                 GiveXP(xp, nullptr);
++                generatedBattlegroundXP = true;
+             }
+         }
+ 
++    if (honor > 0)
++    {
++        Battleground* bg = GetBattleground();
++        if (bg)
++            pvpContextId = uint8(bg->GetBgTypeID(true));
++        else if (!pvpContextId)
++            if (Battlefield* battlefield = sBattlefieldMgr->GetBattlefieldToZoneId(GetZoneId()))
++                // PlayersInWar remains authoritative during synchronous end-reward spells,
++                // after Active is cleared and until BattlefieldWG finishes settlement.
++                if (battlefield->HasPlayerInWar(GetGUID()))
++                    pvpContextId = PVP_HONOR_CONTEXT_BATTLEFIELD;
++
++        uint8 honorSource = PVP_HONOR_SOURCE_OTHER_FIXED;
++        if (uVictim)
++            honorSource = uVictim->IsPlayer() ? PVP_HONOR_SOURCE_HONORABLE_KILL : PVP_HONOR_SOURCE_RACIAL_LEADER;
++        else if (pvpContextId)
++            honorSource = PVP_HONOR_SOURCE_BATTLEGROUND_BONUS;
++
++        uint8 const arenaType = bg ? bg->GetArenaType() : 0;
++        bool const rated = bg && bg->isRated();
++        std::string const eventToken = MakePvPHonorToken(this, uVictim, honorSource);
++
++        sScriptMgr->OnPlayerPvPHonor(this, uVictim, uint32(honor), honorSource, pvpContextId, arenaType, rated,
++            generatedBattlegroundXP, eventToken);
++    }
++
+     if (sWorld->getBoolConfig(CONFIG_PVP_TOKEN_ENABLE))
+     {
+         if (!uVictim || uVictim == this || uVictim->HasNoPVPCreditAura())
+diff --git a/src/server/game/Entities/Player/Player.h b/src/server/game/Entities/Player/Player.h
+index c50e4c32d..3c8558e27 100644
+--- a/src/server/game/Entities/Player/Player.h
++++ b/src/server/game/Entities/Player/Player.h
+@@ -2188,7 +2188,7 @@ public:
+     /***                  PVP SYSTEM                       ***/
+     /*********************************************************/
+     void UpdateHonorFields();
+-    bool RewardHonor(Unit* victim, uint32 groupsize, int32 honor = -1, bool awardXP = true);
++    bool RewardHonor(Unit* victim, uint32 groupsize, int32 honor = -1, bool awardXP = true, uint8 pvpContextId = 0);
+     [[nodiscard]] uint32 GetHonorPoints() const { return GetUInt32Value(PLAYER_FIELD_HONOR_CURRENCY); }
+     [[nodiscard]] uint32 GetArenaPoints() const { return GetUInt32Value(PLAYER_FIELD_ARENA_CURRENCY); }
+     void ModifyHonorPoints(int32 value, CharacterDatabaseTransaction trans = CharacterDatabaseTransaction(nullptr));      //! If trans is specified, honor save query will be added to trans
+diff --git a/src/server/game/OutdoorPvP/OutdoorPvP.cpp b/src/server/game/OutdoorPvP/OutdoorPvP.cpp
+index 6ea63c3ab..cc13698f0 100644
+--- a/src/server/game/OutdoorPvP/OutdoorPvP.cpp
++++ b/src/server/game/OutdoorPvP/OutdoorPvP.cpp
+@@ -17,6 +17,7 @@
+ 
+ #include "OutdoorPvP.h"
+ #include "CellImpl.h"
++#include "GameTime.h"
+ #include "GridNotifiers.h"
+ #include "Group.h"
+ #include "Map.h"
+@@ -24,9 +25,13 @@
+ #include "ObjectAccessor.h"
+ #include "ObjectMgr.h"
+ #include "OutdoorPvPMgr.h"
++#include "ScriptMgr.h"
++#include "StringFormat.h"
+ #include "WorldPacket.h"
+ #include "World.h"
+ 
++#include <chrono>
++
+ OPvPCapturePoint::OPvPCapturePoint(OutdoorPvP* pvp) :
+     _pvp(pvp)
+ {
+@@ -448,12 +453,49 @@ bool OPvPCapturePoint::Update(uint32 diff)
+         }
+ 
+         ChangeState();
++        if (oldTeam != _team && _team != TEAM_NEUTRAL)
++            NotifyObjectiveCaptured();
+         return true;
+     }
+ 
+     return false;
+ }
+ 
++void OPvPCapturePoint::NotifyObjectiveCaptured()
++{
++    if (!_capturePoint || _team == TEAM_NEUTRAL)
++        return;
++
++    uint32 participantCount = 0;
++    for (ObjectGuid const& playerGuid : _activePlayers[_team])
++        if (ObjectAccessor::FindPlayer(playerGuid))
++            ++participantCount;
++
++    if (!participantCount)
++        return;
++
++    uint8 const objectiveTier = _pvp->GetTypeId() == OUTDOOR_PVP_NA ? 2 : 1;
++
++    for (ObjectGuid const& playerGuid : _activePlayers[_team])
++        if (Player* player = ObjectAccessor::FindPlayer(playerGuid))
++            _pvp->NotifyObjectiveCredit(player, m_capturePointSpawnId, _capturePoint->GetEntry(), objectiveTier,
++                participantCount);
++}
++
++void OutdoorPvP::NotifyObjectiveCredit(Player* player, uint32 objectiveId, uint32 objectiveEntry,
++    uint8 objectiveTier, uint32 participantCount)
++{
++    if (!player || player->GetTeamId() == TEAM_NEUTRAL || !participantCount)
++        return;
++
++    auto const epochMicros = std::chrono::duration_cast<std::chrono::microseconds>(
++        GameTime::GetSystemTime().time_since_epoch()).count();
++    std::string const eventToken = Acore::StringFormat("outdoor:{}:{}:{}:{}:{}", GetTypeId(), objectiveId,
++        uint8(player->GetTeamId()), epochMicros, player->GetGUID().GetRawValue());
++    sScriptMgr->OnPlayerOutdoorPvPObjective(player, GetTypeId(), objectiveId, objectiveEntry, objectiveTier,
++        player->GetTeamId(), participantCount, eventToken);
++}
++
+ void OutdoorPvP::SendUpdateWorldState(uint32 field, uint32 value)
+ {
+     if (_sendUpdate)
+diff --git a/src/server/game/OutdoorPvP/OutdoorPvP.h b/src/server/game/OutdoorPvP/OutdoorPvP.h
+index 774244a14..47aa8451d 100644
+--- a/src/server/game/OutdoorPvP/OutdoorPvP.h
++++ b/src/server/game/OutdoorPvP/OutdoorPvP.h
+@@ -147,6 +147,7 @@ protected:
+     bool DelCreature(uint32 type);
+     bool DelObject(uint32 type);
+     bool DelCapturePoint();
++    void NotifyObjectiveCaptured();
+ 
+ protected:
+     // active players in the area of the objective, 0 - alliance, 1 - horde
+@@ -246,6 +247,8 @@ public:
+     Map* GetMap() const { return _map; }
+     OPvPCapturePointMap const& GetCapturePoints() const { return _capturePoints; }
+     OPvPCapturePoint* GetCapturePoint(ObjectGuid::LowType spawnId) const;
++    void NotifyObjectiveCredit(Player* player, uint32 objectiveId, uint32 objectiveEntry, uint8 objectiveTier,
++        uint32 participantCount = 1);
+ 
+ protected:
+     void BroadcastPacket(WorldPacket& data) const;
+diff --git a/src/server/game/Scripting/ScriptDefines/AllBattlegroundScript.cpp b/src/server/game/Scripting/ScriptDefines/AllBattlegroundScript.cpp
+index 3d9213ed8..8af2665db 100644
+--- a/src/server/game/Scripting/ScriptDefines/AllBattlegroundScript.cpp
++++ b/src/server/game/Scripting/ScriptDefines/AllBattlegroundScript.cpp
+@@ -29,6 +29,12 @@ void ScriptMgr::OnBattlegroundEndReward(Battleground* bg, Player* player, TeamId
+     CALL_ENABLED_HOOKS(AllBattlegroundScript, ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_END_REWARD, script->OnBattlegroundEndReward(bg, player, winnerTeamId));
+ }
+ 
++void ScriptMgr::OnBattlegroundPlayerScoreUpdate(Battleground* bg, Player* player, uint32 type, uint32 value)
++{
++    CALL_ENABLED_HOOKS(AllBattlegroundScript, ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_PLAYER_SCORE_UPDATE,
++        script->OnBattlegroundPlayerScoreUpdate(bg, player, type, value));
++}
++
+ void ScriptMgr::OnBattlegroundUpdate(Battleground* bg, uint32 diff)
+ {
+     CALL_ENABLED_HOOKS(AllBattlegroundScript, ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_UPDATE, script->OnBattlegroundUpdate(bg, diff));
+diff --git a/src/server/game/Scripting/ScriptDefines/AllBattlegroundScript.h b/src/server/game/Scripting/ScriptDefines/AllBattlegroundScript.h
+index 2c164b49d..1f868392c 100644
+--- a/src/server/game/Scripting/ScriptDefines/AllBattlegroundScript.h
++++ b/src/server/game/Scripting/ScriptDefines/AllBattlegroundScript.h
+@@ -44,6 +44,7 @@ enum AllBattlegroundHook
+     ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_SETUP,
+     ALLBATTLEGROUNDHOOK_CAN_ADD_GROUP_TO_MATCHING_POOL,
+     ALLBATTLEGROUNDHOOK_GET_PLAYER_MATCHMAKING_RATING,
++    ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_PLAYER_SCORE_UPDATE,
+     ALLBATTLEGROUNDHOOK_END
+ };
+ 
+@@ -72,6 +73,13 @@ public:
+     // End Battleground
+     virtual void OnBattlegroundEndReward(Battleground* /*bg*/, Player* /*player*/, TeamId /*winnerTeamId*/) { }
+ 
++    /**
++     * @brief Called after a score value has actually been applied to a player.
++     *
++     * SCORE_BONUS_HONOR recursion emits only the inner, applied update.
++     */
++    virtual void OnBattlegroundPlayerScoreUpdate(Battleground* /*bg*/, Player* /*player*/, uint32 /*type*/, uint32 /*value*/) { }
++
+     // Update Battlegroud
+     virtual void OnBattlegroundUpdate(Battleground* /*bg*/, uint32 /*diff*/) { }
+ 
+diff --git a/src/server/game/Scripting/ScriptDefines/BattlefieldScript.cpp b/src/server/game/Scripting/ScriptDefines/BattlefieldScript.cpp
+index 65192a206..a04ccb519 100644
+--- a/src/server/game/Scripting/ScriptDefines/BattlefieldScript.cpp
++++ b/src/server/game/Scripting/ScriptDefines/BattlefieldScript.cpp
+@@ -54,6 +54,17 @@ void ScriptMgr::OnBattlefieldPlayerKill(Battlefield* bf, Player* killer, Player*
+     CALL_ENABLED_HOOKS(BattlefieldScript, BATTLEFIELDHOOK_ON_PLAYER_KILL, script->OnBattlefieldPlayerKill(bf, killer, victim));
+ }
+ 
++void ScriptMgr::OnBattlefieldWarStart(Battlefield* bf)
++{
++    CALL_ENABLED_HOOKS(BattlefieldScript, BATTLEFIELDHOOK_ON_WAR_START, script->OnBattlefieldWarStart(bf));
++}
++
++void ScriptMgr::OnBattlefieldObjective(Battlefield* bf, Player* player, uint32 objectiveId, uint8 objectiveTier)
++{
++    CALL_ENABLED_HOOKS(BattlefieldScript, BATTLEFIELDHOOK_ON_OBJECTIVE,
++        script->OnBattlefieldObjective(bf, player, objectiveId, objectiveTier));
++}
++
+ BattlefieldScript::BattlefieldScript(char const* name, std::vector<uint16> enabledHooks) :
+     ScriptObject(name, BATTLEFIELDHOOK_END)
+ {
+diff --git a/src/server/game/Scripting/ScriptDefines/BattlefieldScript.h b/src/server/game/Scripting/ScriptDefines/BattlefieldScript.h
+index 66d0fb72b..0f42232f3 100644
+--- a/src/server/game/Scripting/ScriptDefines/BattlefieldScript.h
++++ b/src/server/game/Scripting/ScriptDefines/BattlefieldScript.h
+@@ -30,6 +30,8 @@ enum BattlefieldHook
+     BATTLEFIELDHOOK_BEFORE_INVITE_PLAYER_TO_WAR,   // 4 - fires in InvitePlayerToWar before InvitedPlayers insert
+     BATTLEFIELDHOOK_ON_WAR_END,                    // 5 - fires in EndBattle before OnBattleEnd(), while PlayersInWar is still populated
+     BATTLEFIELDHOOK_ON_PLAYER_KILL,                // 6 - fires in HandleKill for every player-kills-player event
++    BATTLEFIELDHOOK_ON_WAR_START,                  // 7 - fires after Active is set and before invitations are processed
++    BATTLEFIELDHOOK_ON_OBJECTIVE,                  // 8 - fires for each credited capture-point participant
+     BATTLEFIELDHOOK_END
+ };
+ 
+@@ -91,10 +93,9 @@ public:
+     virtual void OnBattlefieldBeforeInvitePlayerToWar(Battlefield* /*bf*/, Player* /*player*/) { }
+ 
+     /**
+-     * @brief Called in EndBattle() after OnBattleEnd() completes, before the timer is reset.
+-     * All core PlayersInWar/InvitedPlayers structures have already been cleared.
+-     * Modules that maintain their own per-war player tracking should use this hook
+-     * to perform end-of-war cleanup (e.g. restoring cross-faction disguises).
++     * @brief Called in EndBattle() before OnBattleEnd(), while PlayersInWar is populated.
++     * Modules may settle per-player results here; perform cleanup only after copying
++     * any participant state that OnBattleEnd() can clear.
+      *
+      * @param bf         The Battlefield instance
+      * @param endByTimer True if the war ended by the countdown timer expiring
+@@ -111,6 +112,16 @@ public:
+      * @param victim The player who was killed
+      */
+     virtual void OnBattlefieldPlayerKill(Battlefield* /*bf*/, Player* /*killer*/, Player* /*victim*/) { }
++
++    /**
++     * @brief Called once when a new battle becomes active, before players are invited into the war.
++     */
++    virtual void OnBattlefieldWarStart(Battlefield* /*bf*/) { }
++
++    /**
++     * @brief Called once per credited participant when a battlefield capture point changes owner.
++     */
++    virtual void OnBattlefieldObjective(Battlefield* /*bf*/, Player* /*player*/, uint32 /*objectiveId*/, uint8 /*objectiveTier*/) { }
+ };
+ 
+ #endif // SCRIPT_OBJECT_BATTLEFIELD_SCRIPT_H_
+diff --git a/src/server/game/Scripting/ScriptDefines/PlayerScript.cpp b/src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
+index 3454f4b5f..e67f2e161 100644
+--- a/src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
++++ b/src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
+@@ -629,6 +629,22 @@ void ScriptMgr::OnPlayerVictimRewardAfter(Player* player, Player* victim, uint32
+     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_VICTIM_REWARD_AFTER, script->OnPlayerVictimRewardAfter(player, victim, killer_title, victim_rank, honor_f));
+ }
+ 
++void ScriptMgr::OnPlayerPvPHonor(Player* player, Unit* victim, uint32 finalHonor, uint8 honorSource, uint8 battlegroundTypeId,
++    uint8 arenaType, bool rated, bool generatedBattlegroundXP, std::string const& eventToken)
++{
++    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_PVP_HONOR,
++        script->OnPlayerPvPHonor(player, victim, finalHonor, honorSource, battlegroundTypeId, arenaType, rated,
++            generatedBattlegroundXP, eventToken));
++}
++
++void ScriptMgr::OnPlayerOutdoorPvPObjective(Player* player, uint32 outdoorPvPTypeId, uint32 objectiveId,
++    uint32 objectiveEntry, uint8 objectiveTier, TeamId team, uint32 participantCount, std::string const& eventToken)
++{
++    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_OUTDOOR_PVP_OBJECTIVE,
++        script->OnPlayerOutdoorPvPObjective(player, outdoorPvPTypeId, objectiveId, objectiveEntry, objectiveTier, team,
++            participantCount, eventToken));
++}
++
+ void ScriptMgr::OnPlayerCustomScalingStatValueBefore(Player* player, ItemTemplate const* proto, uint8 slot, bool apply, uint32& CustomScalingStatValue)
+ {
+     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_CUSTOM_SCALING_STAT_VALUE_BEFORE, script->OnPlayerCustomScalingStatValueBefore(player, proto, slot, apply, CustomScalingStatValue));
+diff --git a/src/server/game/Scripting/ScriptDefines/PlayerScript.h b/src/server/game/Scripting/ScriptDefines/PlayerScript.h
+index ab8b2ef36..249fb12f7 100644
+--- a/src/server/game/Scripting/ScriptDefines/PlayerScript.h
++++ b/src/server/game/Scripting/ScriptDefines/PlayerScript.h
+@@ -27,6 +27,14 @@
+ #include "AchievementMgr.h"
+ #include "KillRewarder.h"
+ 
++enum PvPHonorSource : uint8
++{
++    PVP_HONOR_SOURCE_HONORABLE_KILL = 1,
++    PVP_HONOR_SOURCE_RACIAL_LEADER = 2,
++    PVP_HONOR_SOURCE_BATTLEGROUND_BONUS = 3,
++    PVP_HONOR_SOURCE_OTHER_FIXED = 4
++};
++
+ enum PlayerHook
+ {
+     PLAYERHOOK_ON_PLAYER_JUST_DIED,
+@@ -222,6 +230,8 @@ enum PlayerHook
+     PLAYERHOOK_ON_LEARN_TAXI_NODE,
+     PLAYERHOOK_ON_BEFORE_GET_LEVEL_FOR_XP_GAIN,
+     PLAYERHOOK_ON_PROFESSION_ACTION,
++    PLAYERHOOK_ON_PVP_HONOR,
++    PLAYERHOOK_ON_OUTDOOR_PVP_OBJECTIVE,
+     PLAYERHOOK_END
+ };
+ 
+@@ -576,6 +586,23 @@ public:
+ 
+     virtual void OnPlayerVictimRewardAfter(Player* /*player*/, Player* /*victim*/, uint32& /*killer_title*/, int32& /*victim_rank*/, float& /*honor_f*/) { }
+ 
++    /**
++     * @brief Called after an honor award has been finalized and credited.
++     *
++     * finalHonor has already passed group division, aura modifiers and RATE_HONOR.
++     * eventToken is an opaque, Lua-safe idempotency key for this credited award.
++     */
++    virtual void OnPlayerPvPHonor(Player* /*player*/, Unit* /*victim*/, uint32 /*finalHonor*/, uint8 /*honorSource*/,
++        uint8 /*battlegroundTypeId*/, uint8 /*arenaType*/, bool /*rated*/, bool /*generatedBattlegroundXP*/,
++        std::string const& /*eventToken*/) { }
++
++    /**
++     * @brief Called once for each credited participant when an outdoor-PvP capture changes owner.
++     */
++    virtual void OnPlayerOutdoorPvPObjective(Player* /*player*/, uint32 /*outdoorPvPTypeId*/, uint32 /*objectiveId*/,
++        uint32 /*objectiveEntry*/, uint8 /*objectiveTier*/, TeamId /*team*/, uint32 /*participantCount*/,
++        std::string const& /*eventToken*/) { }
++
+     virtual void OnPlayerCustomScalingStatValueBefore(Player* /*player*/, ItemTemplate const* /*proto*/, uint8 /*slot*/, bool /*apply*/, uint32& /*CustomScalingStatValue*/) { }
+ 
+     virtual void OnPlayerCustomScalingStatValue(Player* /*player*/, ItemTemplate const* /*proto*/, uint32& /*statType*/, int32& /*val*/, uint8 /*itemProtoStatNumber*/, uint32 /*ScalingStatValue*/, ScalingStatValuesEntry const* /*ssv*/) { }
+diff --git a/src/server/game/Scripting/ScriptMgr.h b/src/server/game/Scripting/ScriptMgr.h
+index 03e88ccc8..449a8617c 100644
+--- a/src/server/game/Scripting/ScriptMgr.h
++++ b/src/server/game/Scripting/ScriptMgr.h
+@@ -429,6 +429,10 @@ public: /* PlayerScript */
+     bool OnPlayerCanAreaExploreAndOutdoor(Player* player);
+     void OnPlayerVictimRewardBefore(Player* player, Player* victim, uint32& killer_title, int32& victim_rank);
+     void OnPlayerVictimRewardAfter(Player* player, Player* victim, uint32& killer_title, int32& victim_rank, float& honor_f);
++    void OnPlayerPvPHonor(Player* player, Unit* victim, uint32 finalHonor, uint8 honorSource, uint8 battlegroundTypeId,
++        uint8 arenaType, bool rated, bool generatedBattlegroundXP, std::string const& eventToken);
++    void OnPlayerOutdoorPvPObjective(Player* player, uint32 outdoorPvPTypeId, uint32 objectiveId, uint32 objectiveEntry,
++        uint8 objectiveTier, TeamId team, uint32 participantCount, std::string const& eventToken);
+     void OnPlayerCustomScalingStatValueBefore(Player* player, ItemTemplate const* proto, uint8 slot, bool apply, uint32& CustomScalingStatValue);
+     void OnPlayerCustomScalingStatValue(Player* player, ItemTemplate const* proto, uint32& statType, int32& val, uint8 itemProtoStatNumber, uint32 ScalingStatValue, ScalingStatValuesEntry const* ssv);
+     void OnPlayerApplyItemModsBefore(Player* player, uint8 slot, bool apply, uint8 itemProtoStatNumber, uint32 statType, int32& val);
+@@ -615,10 +619,13 @@ public: /* BattlefieldScript */
+     void OnBattlefieldBeforeInvitePlayerToWar(Battlefield* bf, Player* player);
+     void OnBattlefieldWarEnd(Battlefield* bf, bool endByTimer);
+     void OnBattlefieldPlayerKill(Battlefield* bf, Player* killer, Player* victim);
++    void OnBattlefieldWarStart(Battlefield* bf);
++    void OnBattlefieldObjective(Battlefield* bf, Player* player, uint32 objectiveId, uint8 objectiveTier);
+ 
+ public: /* BGScript */
+     void OnBattlegroundStart(Battleground* bg);
+     void OnBattlegroundEndReward(Battleground* bg, Player* player, TeamId winnerTeamId);
++    void OnBattlegroundPlayerScoreUpdate(Battleground* bg, Player* player, uint32 type, uint32 value);
+     void OnBattlegroundUpdate(Battleground* bg, uint32 diff);
+     void OnBattlegroundAddPlayer(Battleground* bg, Player* player);
+     void OnBattlegroundBeforeAddPlayer(Battleground* bg, Player* player);
+diff --git a/src/server/scripts/OutdoorPvP/OutdoorPvPNA.cpp b/src/server/scripts/OutdoorPvP/OutdoorPvPNA.cpp
+index 94f8bf44f..8f7128834 100644
+--- a/src/server/scripts/OutdoorPvP/OutdoorPvPNA.cpp
++++ b/src/server/scripts/OutdoorPvP/OutdoorPvPNA.cpp
+@@ -772,6 +772,8 @@ bool OPvPCapturePointNA::Update(uint32 diff)
+                 ChangeTeam(oldTeam);
+             }
+             ChangeState();
++            if (oldTeam != _team && _team != TEAM_NEUTRAL)
++                NotifyObjectiveCaptured();
+             return true;
+         }
+     }
+diff --git a/src/server/scripts/OutdoorPvP/OutdoorPvPSI.cpp b/src/server/scripts/OutdoorPvP/OutdoorPvPSI.cpp
+index bbd72a023..9f1fb5f34 100644
+--- a/src/server/scripts/OutdoorPvP/OutdoorPvPSI.cpp
++++ b/src/server/scripts/OutdoorPvP/OutdoorPvPSI.cpp
+@@ -101,8 +101,8 @@ bool OutdoorPvPSI::HandleAreaTrigger(Player* player, uint32 trigger)
+             {
+                 // remove aura
+                 player->RemoveAurasDueToSpell(SI_SILITHYST_FLAG);
+-                ++ m_Gathered_A;
+-                if (m_Gathered_A >= SI_MAX_RESOURCES)
++                bool const completedObjective = ++m_Gathered_A >= SI_MAX_RESOURCES;
++                if (completedObjective)
+                 {
+                     TeamApplyBuff(TEAM_ALLIANCE, SI_CENARION_FAVOR, 0, player);
+                     GetMap()->SendZoneText(OutdoorPvPSIBuffZones[0], sObjectMgr->GetAcoreStringForDBCLocale(LANG_OPVP_SI_CAPTURE_A).c_str());
+@@ -115,11 +115,13 @@ bool OutdoorPvPSI::HandleAreaTrigger(Player* player, uint32 trigger)
+                 if (player->GetLevel() < 70)
+                     player->CastSpell(player, SI_TRACES_OF_SILITHYST, true);
+                 // add 19 honor
+-                player->RewardHonor(nullptr, 1, 19);
++                player->RewardHonor(nullptr, 1, 19, true, PVP_HONOR_CONTEXT_OUTDOOR_PVP);
+                 // add 20 cenarion circle repu
+                 player->GetReputationMgr().ModifyReputation(sFactionStore.LookupEntry(609), 20.f);
+                 // complete quest
+                 player->KilledMonsterCredit(SI_TURNIN_QUEST_CM_A);
++                NotifyObjectiveCredit(player, SI_AREATRIGGER_A, SI_TURNIN_QUEST_CM_A,
++                    completedObjective ? 2 : 1);
+             }
+             return true;
+         case SI_AREATRIGGER_H:
+@@ -127,8 +129,8 @@ bool OutdoorPvPSI::HandleAreaTrigger(Player* player, uint32 trigger)
+             {
+                 // remove aura
+                 player->RemoveAurasDueToSpell(SI_SILITHYST_FLAG);
+-                ++ m_Gathered_H;
+-                if (m_Gathered_H >= SI_MAX_RESOURCES)
++                bool const completedObjective = ++m_Gathered_H >= SI_MAX_RESOURCES;
++                if (completedObjective)
+                 {
+                     TeamApplyBuff(TEAM_HORDE, SI_CENARION_FAVOR, 0, player);
+                     GetMap()->SendZoneText(OutdoorPvPSIBuffZones[0], sObjectMgr->GetAcoreStringForDBCLocale(LANG_OPVP_SI_CAPTURE_H).c_str());
+@@ -141,11 +143,13 @@ bool OutdoorPvPSI::HandleAreaTrigger(Player* player, uint32 trigger)
+                 if (player->GetLevel() < 70)
+                     player->CastSpell(player, SI_TRACES_OF_SILITHYST, true);
+                 // add 19 honor
+-                player->RewardHonor(nullptr, 1, 19);
++                player->RewardHonor(nullptr, 1, 19, true, PVP_HONOR_CONTEXT_OUTDOOR_PVP);
+                 // add 20 cenarion circle repu
+                 player->GetReputationMgr().ModifyReputation(sFactionStore.LookupEntry(609), 20.f);
+                 // complete quest
+                 player->KilledMonsterCredit(SI_TURNIN_QUEST_CM_H);
++                NotifyObjectiveCredit(player, SI_AREATRIGGER_H, SI_TURNIN_QUEST_CM_H,
++                    completedObjective ? 2 : 1);
+             }
+             return true;
+     }
+diff --git a/src/server/scripts/OutdoorPvP/OutdoorPvPZM.cpp b/src/server/scripts/OutdoorPvP/OutdoorPvPZM.cpp
+index 60b7a5bbc..30cad35da 100644
+--- a/src/server/scripts/OutdoorPvP/OutdoorPvPZM.cpp
++++ b/src/server/scripts/OutdoorPvP/OutdoorPvPZM.cpp
+@@ -236,6 +236,7 @@ int32 OPvPCapturePointZM_Graveyard::HandleOpenGo(Player* player, GameObject* go)
+             _pvp->TeamApplyBuff(TEAM_ALLIANCE, ZM_CAPTURE_BUFF, 0, player);
+             player->RemoveAurasDueToSpell(ZM_BATTLE_STANDARD_A);
+             _pvp->GetMap()->SendZoneText(ZM_GRAVEYARD_ZONE, sObjectMgr->GetAcoreStringForDBCLocale(LANG_OPVP_ZM_CAPTURE_GY_A).c_str());
++            _pvp->NotifyObjectiveCredit(player, go->GetSpawnId(), go->GetEntry(), 2);
+         }
+         else if (player->HasAura(ZM_BATTLE_STANDARD_H) && m_GraveyardState != ZM_GRAVEYARD_H)
+         {
+@@ -249,6 +250,7 @@ int32 OPvPCapturePointZM_Graveyard::HandleOpenGo(Player* player, GameObject* go)
+             _pvp->TeamApplyBuff(TEAM_HORDE, ZM_CAPTURE_BUFF, 0, player);
+             player->RemoveAurasDueToSpell(ZM_BATTLE_STANDARD_H);
+             _pvp->GetMap()->SendZoneText(ZM_GRAVEYARD_ZONE, sObjectMgr->GetAcoreStringForDBCLocale(LANG_OPVP_ZM_CAPTURE_GY_H).c_str());
++            _pvp->NotifyObjectiveCredit(player, go->GetSpawnId(), go->GetEntry(), 2);
+         }
+         UpdateTowerState();
+     }
+diff --git a/src/server/shared/SharedDefines.h b/src/server/shared/SharedDefines.h
+index 8b6dacc8b..ef6d18102 100644
+--- a/src/server/shared/SharedDefines.h
++++ b/src/server/shared/SharedDefines.h
+@@ -3691,6 +3691,12 @@ enum PvPTeamId
+     PVP_TEAM_NEUTRAL     = 2  // Battleground: Neutral,  Arena: None
+ };
+ 
++enum PvPHonorContext : uint8
++{
++    PVP_HONOR_CONTEXT_OUTDOOR_PVP = 253,
++    PVP_HONOR_CONTEXT_BATTLEFIELD = 254
++};
++
+ enum AllianceId
+ {
+     ALLIANCE_ALLIANCE = 0,

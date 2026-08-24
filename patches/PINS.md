@@ -8,11 +8,14 @@
 | `05-mod-ale.patch` | `github.com/azerothcore/mod-eluna` | `9e5b8c66efeb383871ec58b925e47094c92cc8d5` |
 | `06-AccountBound.patch` | `github.com/AlsoNotMehh/AccountBound` | `f7ba75b14bdf04f4a4e711f0b6f71a0589ea4649` |
 | `07-mod-ale-profession-xp.patch` | `github.com/azerothcore/mod-eluna` | `9e5b8c66efeb383871ec58b925e47094c92cc8d5` |
+| `08-core-pvp-merit.patch` | same playerbot core as `01` | `efe123fab543c5faf3c477674ec17a18fd59f09f` |
+| `09-mod-ale-pvp-merit.patch` | `github.com/azerothcore/mod-eluna` | `9e5b8c66efeb383871ec58b925e47094c92cc8d5` |
 
-Apply the core patches in `01`, `02`, `04` order. Apply the mod-ale patches in
-`05`, `07` order. The profession-XP patches are deliberately separate layers:
-`02` expects the core state produced by `01`, and `07` expects the ALE state
-produced by `05`.
+Apply the core patches in `01`, `02`, `04`, `08` order. Apply the mod-ale
+patches in `05`, `07`, `09` order. The profession-XP and PvP-Merit patches are
+deliberately separate layers: `02` expects the core state produced by `01`,
+`08` expects `01` + `02` + `04`, `07` expects the ALE state produced by `05`,
+and `09` expects `05` + `07`.
 
 This fork itself is based on `Grim-Batol/Paragon-Anniversary` @ `a3cb1bb5d9b3983154b9e7a71459b199fcea0d9f`.
 Its sole authoritative install branch is `main` at
@@ -70,8 +73,22 @@ and `MAP_EVENT_ON_ENCOUNTER_COMPLETE` (36) hooks; the
 `Creature:GetAtLevelXPReward()` and `Player:IsPlayerBot()` methods; and widens
 `ItemMethods` to the full enchantment-slot range. The follow-up
 `07-mod-ale-profession-xp.patch` adds the authoritative
-`PLAYER_EVENT_ON_PROFESSION_ACTION` (76) bridge. These patches are
-Paragon-exclusive, which is why they live here rather than in a separate fork.
+`PLAYER_EVENT_ON_PROFESSION_ACTION` (76) bridge. `08-core-pvp-merit.patch` and
+`09-mod-ale-pvp-merit.patch` add authoritative bridge events 77-81 for
+post-rate credited honor, per-player battleground/arena settlement,
+Wintergrasp settlement, legacy OutdoorPvP objectives, and completed duels.
+For event 77, real battleground IDs remain unchanged while context `253` means
+proven legacy OutdoorPvP honor and `254` means active
+Battlefield/Wintergrasp honor. Source 4 remains unclassified and must not be
+rewarded.
+
+PvP event and roster tokens are opaque ASCII strings, never Lua numbers. The
+opponent roster key hashes sorted distinct account IDs for every opponent,
+including playerbots; real/bot counts are telemetry only and bot-only opposing
+rosters are not reduced or suppressed. See `doc/PVP_MERIT.md` for exact
+positional callbacks, activity-bucket rules, objective mappings, and known
+attribution limits. These patches are Paragon-exclusive, which is why they
+live here rather than in a separate fork.
 
 Paragon also depends on mod-ale's `ObjectVariables.ext`, which defines
 `SetData` and `GetData`. CMake installing the extension is not sufficient for

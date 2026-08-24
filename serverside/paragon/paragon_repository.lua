@@ -63,6 +63,7 @@ function Repository:VerifyDatabaseSchema()
         "account_paragon",
         "character_paragon_stats",
         "paragon_profession_progress",
+        "paragon_pvp_reward_claim",
         "paragon_collectible_spell_xp",
         "paragon_collectible_item_xp",
         "paragon_rewarded_collectible_spell",

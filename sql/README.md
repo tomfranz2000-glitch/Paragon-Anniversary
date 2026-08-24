@@ -56,6 +56,7 @@ After running `sql/install.sql`, verify the installation by checking that the fo
 - `acore_ale.paragon_config_experience_skill`
 - `acore_ale.paragon_config_experience_quest`
 - `acore_ale.paragon_profession_progress`
+- `acore_ale.paragon_pvp_reward_claim`
 - `acore_ale.character_paragon`
 - `acore_ale.account_paragon`
 - `acore_ale.character_paragon_stats`
@@ -74,7 +75,7 @@ And verify that default configuration values were inserted:
 
 ```sql
 SELECT COUNT(*) FROM acore_ale.paragon_config;
--- Should return at least 22 rows
+-- Should return at least 83 rows
 SELECT value FROM acore_ale.paragon_config
 WHERE field = 'UNIVERSAL_SKILL_EXPERIENCE';
 -- Should return 2000 (final XP)
@@ -100,6 +101,11 @@ claims are upgraded once while their old authority rows still identify them;
 new profession skill-up awards store the final universal value directly.
 Legacy per-skill rows remain for schema compatibility but do not override that
 flat high-water contract.
+
+The same bootstrap creates the PvP Merit claim ledger and writes every PvP
+economy value directly into `paragon_config`. There is no hidden global or
+bot-only practice multiplier. See [`doc/PVP_MERIT.md`](../doc/PVP_MERIT.md)
+for the bridge, reset, idempotency, cap, and DR contracts.
 
 ## Generated world content
 

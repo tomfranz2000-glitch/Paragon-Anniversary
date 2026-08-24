@@ -27,7 +27,10 @@ This document lists all available **Mediator hooks** in the Paragon system. Hook
 player      -- The player object
 paragon     -- The paragon instance
 source_type -- CREATURE=1, ACHIEVEMENT=2, SKILLUP=3, QUEST=4,
-            -- CRAFT=5, GATHER=6, PROCESS=7, COLLECTIBLE=8
+            -- CRAFT=5, GATHER=6, PROCESS=7, COLLECTIBLE=8,
+            -- PVP_HONOR=9, PVP_BATTLEGROUND=10, PVP_ARENA=11,
+            -- PVP_OBJECTIVE=12, PVP_DUEL=13, PVP_BREADTH=14,
+            -- PVP_WINTERGRASP=15
 entry       -- The source entry/context ID
 ```
 
@@ -72,8 +75,9 @@ experience  -- Modified experience value
 
 **Description:**
 Triggered after repeatable experience is calculated but before level-up
-processing. Allows modification of `CREATURE=1`, `CRAFT=5`, `GATHER=6`, and
-`PROCESS=7` XP based on conditions. Flat `ACHIEVEMENT=2`, `SKILLUP=3`,
+processing. Allows modification of `CREATURE=1`, `CRAFT=5`, `GATHER=6`,
+`PROCESS=7`, and the repeatable PvP sources `9-15` based on conditions. Flat
+`ACHIEVEMENT=2`, `SKILLUP=3`,
 `QUEST=4`, and `COLLECTIBLE=8` awards always bypass this hook at the common
 award boundary. Their authoritative config/generator values are already the
 final amounts; no runtime one-time scaling stage exists.
@@ -170,7 +174,7 @@ end)
 player  -- The player object
 paragon -- The paragon instance (with _last_exp_gained and _last_levels_gained metadata)
 awarded_experience -- Exact amount applied after source resolution/modifiers
-source_type        -- CREATURE=1 ... COLLECTIBLE=8
+source_type        -- CREATURE=1 ... PVP_WINTERGRASP=15
 entry              -- Source entry/context ID supplied at the award boundary
 ```
 

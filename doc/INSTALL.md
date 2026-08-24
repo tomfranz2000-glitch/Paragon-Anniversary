@@ -177,6 +177,8 @@ Apply each patch from the repository named in the second column:
 | `patches/05-mod-ale.patch` | `modules/mod-ale` | Yes |
 | `patches/06-AccountBound.patch` | `modules/AccountBound` | When using the pinned AccountBound title-sync module |
 | `patches/07-mod-ale-profession-xp.patch` | `modules/mod-ale` | Yes; apply after `05` |
+| `patches/08-core-pvp-merit.patch` | AzerothCore root | Yes; PvP activity and settlement bridge |
+| `patches/09-mod-ale-pvp-merit.patch` | `modules/mod-ale` | Yes; apply after `05` and `07` |
 
 Example:
 
@@ -185,15 +187,18 @@ cd /path/to/azerothcore
 git apply /path/to/Paragon-Anniversary/patches/01-core-paragon.patch
 git apply /path/to/Paragon-Anniversary/patches/02-core-profession-xp.patch
 git apply /path/to/Paragon-Anniversary/patches/04-core-docker-build-jobs.patch
+git apply /path/to/Paragon-Anniversary/patches/08-core-pvp-merit.patch
 
 cd modules/mod-ale
 git apply /path/to/Paragon-Anniversary/patches/05-mod-ale.patch
 git apply /path/to/Paragon-Anniversary/patches/07-mod-ale-profession-xp.patch
+git apply /path/to/Paragon-Anniversary/patches/09-mod-ale-pvp-merit.patch
 ```
 
-Keep the core patches in exact `01` → `02` → `04` order and the ALE patches in
-exact `05` → `07` order. The profession layers depend on the preceding base
-patches and must not be folded into a different sequence.
+Keep the core patches in exact `01` → `02` → `04` → `08` order and the ALE
+patches in exact `05` → `07` → `09` order. The profession and PvP bridge
+layers depend on the preceding base patches and must not be folded into a
+different sequence.
 
 Build the core only after all applicable patches and modules are present. For
 Docker, pass a conservative build width when needed, for example
@@ -222,7 +227,7 @@ reapplies the canonical Anniversary realm settings and raises existing
 profession high-water marks without awarding retroactive XP.
 
 There is no required `sql/06` file. `02_create_tables.sql` remains the single
-authoritative schema and creates all 21 base and Anniversary tables, including
+authoritative schema and creates all 22 base and Anniversary tables, including
 the five collection/codex support tables that older installs lacked.
 
 Do not load `sql/11-13-2026_Example_Data.sql` on an existing realm. It is a
@@ -236,7 +241,7 @@ SELECT field, value FROM acore_ale.paragon_config
 WHERE field IN ('BASE_MAX_EXPERIENCE', 'MINIMUM_LEVEL_FOR_PARAGON_XP');
 ```
 
-The Anniversary preset contains at least 22 settings, starts at 30,000 XP,
+The Anniversary preset contains at least 83 settings, starts at 30,000 XP,
 and permits Paragon XP only from character level 80.
 
 ## 4. Generate profession data and install server Lua

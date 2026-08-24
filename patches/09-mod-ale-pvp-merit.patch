@@ -1,0 +1,1380 @@
+diff --git a/src/ALE_SC.cpp b/src/ALE_SC.cpp
+index 0daf73f..2068c7c 100644
+--- a/src/ALE_SC.cpp
++++ b/src/ALE_SC.cpp
+@@ -24,6 +24,7 @@
+ #include "Map.h"
+ #include "Pet.h"
+ #include "Player.h"
++#include "PvPMeritTracker.h"
+ #include "ScriptMgr.h"
+ #include "ScriptedGossip.h"
+ 
+@@ -142,11 +143,13 @@ public:
+ 
+     void OnGameObjectDamaged(GameObject* go, Player* player) override
+     {
++        sPvPMeritTracker.OnBattlefieldBuildingDamaged(go, player);
+         sALE->OnDamaged(go, player);
+     }
+ 
+     void OnGameObjectDestroyed(GameObject* go, Player* player) override
+     {
++        sPvPMeritTracker.OnBattlefieldBuildingDestroyed(go, player);
+         sALE->OnDestroyed(go, player);
+     }
+ 
+@@ -359,6 +362,10 @@ class ALE_BGScript : public BGScript
+ public:
+     ALE_BGScript() : BGScript("ALE_BGScript", {
+         ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_START,
++        ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_END_REWARD,
++        ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_ADD_PLAYER,
++        ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_REMOVE_PLAYER_AT_LEAVE,
++        ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_PLAYER_SCORE_UPDATE,
+         ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_END,
+         ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_DESTROY,
+         ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_CREATE
+@@ -366,9 +373,30 @@ public:
+ 
+     void OnBattlegroundStart(Battleground* bg) override
+     {
++        sPvPMeritTracker.OnBattlegroundStart(bg);
+         sALE->OnBGStart(bg, bg->GetBgTypeID(), bg->GetInstanceID());
+     }
+ 
++    void OnBattlegroundEndReward(Battleground* bg, Player* player, TeamId winnerTeam) override
++    {
++        sPvPMeritTracker.OnBattlegroundEndReward(bg, player, winnerTeam);
++    }
++
++    void OnBattlegroundAddPlayer(Battleground* bg, Player* player) override
++    {
++        sPvPMeritTracker.OnBattlegroundAddPlayer(bg, player);
++    }
++
++    void OnBattlegroundRemovePlayerAtLeave(Battleground* bg, Player* player) override
++    {
++        sPvPMeritTracker.OnBattlegroundRemovePlayer(bg, player);
++    }
++
++    void OnBattlegroundPlayerScoreUpdate(Battleground* bg, Player* player, uint32 type, uint32 value) override
++    {
++        sPvPMeritTracker.OnBattlegroundScoreUpdate(bg, player, type, value);
++    }
++
+     void OnBattlegroundEnd(Battleground* bg, TeamId winnerTeam) override
+     {
+         sALE->OnBGEnd(bg, bg->GetBgTypeID(), bg->GetInstanceID(), winnerTeam);
+@@ -377,6 +405,7 @@ public:
+     void OnBattlegroundDestroy(Battleground* bg) override
+     {
+         sALE->OnBGDestroy(bg, bg->GetBgTypeID(), bg->GetInstanceID());
++        sPvPMeritTracker.OnBattlegroundDestroy(bg);
+     }
+ 
+     void OnBattlegroundCreate(Battleground* bg) override
+@@ -385,6 +414,49 @@ public:
+     }
+ };
+ 
++class ALE_BattlefieldScript : public BattlefieldScript
++{
++public:
++    ALE_BattlefieldScript() : BattlefieldScript("ALE_BattlefieldScript", {
++        BATTLEFIELDHOOK_ON_PLAYER_JOIN_WAR,
++        BATTLEFIELDHOOK_ON_PLAYER_LEAVE_WAR,
++        BATTLEFIELDHOOK_ON_WAR_END,
++        BATTLEFIELDHOOK_ON_PLAYER_KILL,
++        BATTLEFIELDHOOK_ON_WAR_START,
++        BATTLEFIELDHOOK_ON_OBJECTIVE
++    }) { }
++
++    void OnBattlefieldWarStart(Battlefield* battlefield) override
++    {
++        sPvPMeritTracker.OnBattlefieldWarStart(battlefield);
++    }
++
++    void OnBattlefieldPlayerJoinWar(Battlefield* battlefield, Player* player) override
++    {
++        sPvPMeritTracker.OnBattlefieldPlayerJoinWar(battlefield, player);
++    }
++
++    void OnBattlefieldPlayerLeaveWar(Battlefield* battlefield, Player* player) override
++    {
++        sPvPMeritTracker.OnBattlefieldPlayerLeaveWar(battlefield, player);
++    }
++
++    void OnBattlefieldWarEnd(Battlefield* battlefield, bool endedByTimer) override
++    {
++        sPvPMeritTracker.OnBattlefieldWarEnd(battlefield, endedByTimer);
++    }
++
++    void OnBattlefieldPlayerKill(Battlefield* battlefield, Player* killer, Player* victim) override
++    {
++        sPvPMeritTracker.OnBattlefieldPlayerKill(battlefield, killer, victim);
++    }
++
++    void OnBattlefieldObjective(Battlefield* battlefield, Player* player, uint32 objectiveId, uint8 objectiveTier) override
++    {
++        sPvPMeritTracker.OnBattlefieldObjective(battlefield, player, objectiveId, objectiveTier);
++    }
++};
++
+ class ALE_CommandSC : public CommandSC
+ {
+ public:
+@@ -667,6 +739,8 @@ public:
+         PLAYERHOOK_ON_BEFORE_UPDATE_SKILL,
+         PLAYERHOOK_ON_UPDATE_SKILL,
+         PLAYERHOOK_ON_PROFESSION_ACTION,
++        PLAYERHOOK_ON_PVP_HONOR,
++        PLAYERHOOK_ON_OUTDOOR_PVP_OBJECTIVE,
+         PLAYERHOOK_CAN_RESURRECT,
+         PLAYERHOOK_ON_PLAYER_RELEASED_GHOST
+     }) { }
+@@ -857,11 +931,13 @@ public:
+ 
+     void OnPlayerDuelStart(Player* player1, Player* player2) override
+     {
++        sPvPMeritTracker.OnDuelStart(player1, player2);
+         sALE->OnDuelStart(player1, player2);
+     }
+ 
+     void OnPlayerDuelEnd(Player* winner, Player* loser, DuelCompleteType type) override
+     {
++        sPvPMeritTracker.OnDuelEnd(winner, loser, type);
+         sALE->OnDuelEnd(winner, loser, type);
+     }
+ 
+@@ -992,6 +1068,7 @@ public:
+ 
+     void OnPlayerBattlegroundDesertion(Player* player, const BattlegroundDesertionType type) override
+     {
++        sPvPMeritTracker.OnBattlegroundDesertion(player, type);
+         sALE->OnBattlegroundDesertion(player, type);
+     }
+ 
+@@ -1021,6 +1098,22 @@ public:
+         sALE->OnPlayerProfessionAction(player, actionKind, skillId, contextId, quantity, actionToken);
+     }
+ 
++    void OnPlayerPvPHonor(Player* player, Unit* victim, uint32 finalHonor, uint8 honorSource,
++        uint8 battlegroundTypeId, uint8 arenaType, bool rated, bool generatedBattlegroundXP,
++        std::string const& eventToken) override
++    {
++        sALE->OnPvPHonor(player, victim ? victim->ToPlayer() : nullptr, finalHonor, honorSource, battlegroundTypeId,
++            arenaType, rated, generatedBattlegroundXP, eventToken);
++    }
++
++    void OnPlayerOutdoorPvPObjective(Player* player, uint32 outdoorPvPTypeId, uint32 objectiveId,
++        uint32 objectiveEntry, uint8 objectiveTier, TeamId team, uint32 participantCount,
++        std::string const& eventToken) override
++    {
++        sALE->OnOutdoorPvPObjective(player, outdoorPvPTypeId, objectiveId, objectiveEntry, objectiveTier,
++            player->GetMapId(), player->GetZoneId(), uint8(team), participantCount, eventToken);
++    }
++
+     bool OnPlayerCanResurrect(Player* player) override
+     {
+         return sALE->CanPlayerResurrect(player);
+@@ -1318,6 +1411,9 @@ public:
+             sALE->OnCreatureHeal(healer->ToCreature(), receiver, gain);
+             sALE->OnAllCreatureHeal(healer->ToCreature(), receiver, gain);
+         }
++
++        // Unit::DealHeal dispatches this hook after ModifyHealth, so gain excludes overhealing.
++        sPvPMeritTracker.OnPvPHeal(healer, receiver, gain);
+     }
+ 
+     void OnDamage(Unit* attacker, Unit* receiver, uint32& damage) override
+@@ -1332,6 +1428,8 @@ public:
+             sALE->OnCreatureDamage(attacker->ToCreature(), receiver, damage);
+             sALE->OnAllCreatureDamage(attacker->ToCreature(), receiver, damage);
+         }
++
++        sPvPMeritTracker.OnPvPDamage(attacker, receiver, damage);
+     }
+ 
+     void ModifyPeriodicDamageAurasTick(Unit* target, Unit* attacker, uint32& damage, SpellInfo const* spellInfo) override
+@@ -1414,6 +1512,7 @@ void AddSC_ALE()
+     new ALE_AuctionHouseScript();
+     new ALE_GlobalScript();
+     new ALE_BGScript();
++    new ALE_BattlefieldScript();
+     new ALE_CommandSC();
+     new ALE_ALEScript();
+     new ALE_GameEventScript();
+diff --git a/src/LuaEngine/Hooks.h b/src/LuaEngine/Hooks.h
+index 155c7f0..40657bf 100644
+--- a/src/LuaEngine/Hooks.h
++++ b/src/LuaEngine/Hooks.h
+@@ -252,6 +252,21 @@ namespace Hooks
+         // actionToken is a non-zero process-local sequence token.
+         // (event, player, actionKind, skillId, contextId, quantity, actionToken)
+         PLAYER_EVENT_ON_PROFESSION_ACTION                   =     76,
++        // finalHonor is post division/aura/rate; source: 1 HK, 2 leader,
++        // 3 BG bonus/objective, 4 other fixed. eventToken is an opaque string.
++        // contextId is a real BG type, 253 legacy OutdoorPvP, or 254 Battlefield/WG.
++        // (event, player, victimOrNil, finalHonor, source, contextId, arenaType,
++        //  rated, generatedBattlegroundXP, eventToken)
++        PLAYER_EVENT_ON_PVP_HONOR                           =     77,
++        // See Paragon's PvP bridge contract for positional score/objective fields.
++        PLAYER_EVENT_ON_PVP_MATCH_COMPLETE                  =     78,
++        PLAYER_EVENT_ON_PVP_BATTLEFIELD_COMPLETE            =     79,
++        // (event, player, outdoorTypeId, objectiveId, objectiveEntry,
++        //  objectiveTier, mapId, zoneId, team, participantCount, eventToken)
++        PLAYER_EVENT_ON_PVP_OUTDOOR_OBJECTIVE               =     80,
++        // (event, winner, loser, duelType, durationSeconds, sameAccount,
++        //  sameIp, winnerIsBot, loserIsBot, eventToken)
++        PLAYER_EVENT_ON_PVP_DUEL_COMPLETE                   =     81,
+ 
+         PLAYER_EVENT_COUNT
+     };
+diff --git a/src/LuaEngine/LuaEngine.h b/src/LuaEngine/LuaEngine.h
+index 288ff79..85b56b0 100644
+--- a/src/LuaEngine/LuaEngine.h
++++ b/src/LuaEngine/LuaEngine.h
+@@ -67,6 +67,8 @@ class Unit;
+ class Weather;
+ class WorldPacket;
+ class Vehicle;
++struct PvPBattlefieldSettlement;
++struct PvPMatchSettlement;
+ 
+ struct lua_State;
+ class EventMgr;
+@@ -466,6 +468,15 @@ public:
+     void OnTalentsReset(Player* pPlayer, bool noCost);
+     void OnMoneyChanged(Player* pPlayer, int32& amount);
+     void OnGiveXP(Player* pPlayer, uint32& amount, Unit* pVictim, uint8 xpSource);
++    void OnPvPHonor(Player* player, Player* victim, uint32 finalHonor, uint8 honorSource, uint8 battlegroundTypeId,
++        uint8 arenaType, bool rated, bool generatedBattlegroundXP, std::string const& eventToken);
++    void OnPvPMatchComplete(Player* player, PvPMatchSettlement const& settlement);
++    void OnPvPBattlefieldComplete(Player* player, PvPBattlefieldSettlement const& settlement);
++    void OnOutdoorPvPObjective(Player* player, uint32 outdoorPvPTypeId, uint32 objectiveId, uint32 objectiveEntry,
++        uint8 objectiveTier, uint32 mapId, uint32 zoneId, uint8 team, uint32 participantCount,
++        std::string const& eventToken);
++    void OnPvPDuelComplete(Player* winner, Player* loser, DuelCompleteType type, uint32 durationSeconds,
++        bool sameAccount, bool sameIp, bool winnerIsBot, bool loserIsBot, std::string const& eventToken);
+     void OnKillReward(Player* pPlayer, Creature* pCreature, bool isDungeon, uint32 participantCount, bool isRaid);
+     bool OnReputationChange(Player* pPlayer, uint32 factionID, int32& standing, bool incremental);
+     void OnDuelRequest(Player* pTarget, Player* pChallenger);
+diff --git a/src/LuaEngine/hooks/PvPMeritHooks.cpp b/src/LuaEngine/hooks/PvPMeritHooks.cpp
+new file mode 100644
+index 0000000..41d2fe6
+--- /dev/null
++++ b/src/LuaEngine/hooks/PvPMeritHooks.cpp
+@@ -0,0 +1,162 @@
++/*
++ * Copyright (C) 2010 - 2025 Eluna Lua Engine <https://elunaluaengine.github.io/>
++ * This program is free software licensed under GPL version 3
++ */
++
++#include "Hooks.h"
++#include "HookHelpers.h"
++#include "LuaEngine.h"
++#include "BindingMap.h"
++#include "ALEIncludes.h"
++#include "ALETemplate.h"
++#include "PvPMeritTracker.h"
++
++using namespace Hooks;
++
++#define START_PVP_HOOK(EVENT) \
++    if (!ALEConfig::GetInstance().IsALEEnabled())\
++        return;\
++    auto key = EventKey<PlayerEvents>(EVENT);\
++    if (!PlayerEventBindings->HasBindingsFor(key))\
++        return;\
++    LOCK_ALE
++
++void ALE::OnPvPHonor(Player* player, Player* victim, uint32 finalHonor, uint8 honorSource, uint8 battlegroundTypeId,
++    uint8 arenaType, bool rated, bool generatedBattlegroundXP, std::string const& eventToken)
++{
++    sPvPMeritTracker.OnPvPHonor(player, finalHonor, honorSource);
++
++    START_PVP_HOOK(PLAYER_EVENT_ON_PVP_HONOR);
++    Push(player);
++    Push(victim);
++    Push(finalHonor);
++    Push(honorSource);
++    Push(battlegroundTypeId);
++    Push(arenaType);
++    Push(rated);
++    Push(generatedBattlegroundXP);
++    Push(eventToken);
++    CallAllFunctions(PlayerEventBindings, key);
++}
++
++void ALE::OnPvPMatchComplete(Player* player, PvPMatchSettlement const& settlement)
++{
++    START_PVP_HOOK(PLAYER_EVENT_ON_PVP_MATCH_COMPLETE);
++    Push(player);
++    Push(settlement.MatchKind);
++    Push(settlement.Result);
++    Push(settlement.DurationSeconds);
++    Push(settlement.ActiveSeconds);
++    Push(settlement.PresenceBuckets);
++    Push(settlement.ActiveBuckets);
++    Push(settlement.TacticalActions);
++    Push(settlement.BattlegroundTypeId);
++    Push(settlement.MapId);
++    Push(settlement.InstanceId);
++    Push(settlement.ArenaType);
++    Push(settlement.Rated);
++    Push(settlement.BracketId);
++    Push(settlement.PlayerTeam);
++    Push(settlement.WinnerTeam);
++    Push(settlement.KillingBlows);
++    Push(settlement.Deaths);
++    Push(settlement.HonorableKills);
++    Push(settlement.BonusHonor);
++    Push(settlement.DamageDone);
++    Push(settlement.HealingDone);
++    Push(settlement.PvPDamageDone);
++    Push(settlement.PvPHealingDone);
++    Push(settlement.Objective1);
++    Push(settlement.Objective2);
++    Push(settlement.Objective3);
++    Push(settlement.Objective4);
++    Push(settlement.Objective5);
++    Push(settlement.IsBot);
++    Push(settlement.AccountId);
++    Push(settlement.OpponentCount);
++    Push(settlement.RealOpponentCount);
++    Push(settlement.BotOpponentCount);
++    Push(settlement.UniqueOpponentAccounts);
++    Push(settlement.SameAccountOpponent);
++    Push(settlement.SameIpOpponent);
++    Push(settlement.Inactive);
++    Push(settlement.Deserter);
++    Push(settlement.OpponentRosterKey);
++    Push(settlement.EventToken);
++    CallAllFunctions(PlayerEventBindings, key);
++}
++
++void ALE::OnPvPBattlefieldComplete(Player* player, PvPBattlefieldSettlement const& settlement)
++{
++    START_PVP_HOOK(PLAYER_EVENT_ON_PVP_BATTLEFIELD_COMPLETE);
++    Push(player);
++    Push(settlement.BattlefieldTypeId);
++    Push(settlement.BattleId);
++    Push(settlement.ZoneId);
++    Push(settlement.MapId);
++    Push(settlement.Result);
++    Push(settlement.DurationSeconds);
++    Push(settlement.ActiveSeconds);
++    Push(settlement.PresenceBuckets);
++    Push(settlement.ActiveBuckets);
++    Push(settlement.TacticalActions);
++    Push(settlement.PlayerTeam);
++    Push(settlement.WinnerTeam);
++    Push(settlement.AttackerTeam);
++    Push(settlement.DefenderTeamAtStart);
++    Push(settlement.EndedByTimer);
++    Push(settlement.IsBot);
++    Push(settlement.AccountId);
++    Push(settlement.PlayerKills);
++    Push(settlement.PvPDamageDone);
++    Push(settlement.PvPHealingDone);
++    Push(settlement.ObjectiveMajor);
++    Push(settlement.ObjectiveStandard);
++    Push(settlement.ObjectiveAssist);
++    Push(settlement.RealOpponentCount);
++    Push(settlement.BotOpponentCount);
++    Push(settlement.UniqueOpponentAccounts);
++    Push(settlement.SameAccountOpponent);
++    Push(settlement.SameIpOpponent);
++    Push(settlement.Inactive);
++    Push(settlement.Deserter);
++    Push(settlement.OpponentRosterKey);
++    Push(settlement.EventToken);
++    CallAllFunctions(PlayerEventBindings, key);
++}
++
++void ALE::OnOutdoorPvPObjective(Player* player, uint32 outdoorPvPTypeId, uint32 objectiveId,
++    uint32 objectiveEntry, uint8 objectiveTier, uint32 mapId, uint32 zoneId, uint8 team, uint32 participantCount,
++    std::string const& eventToken)
++{
++    START_PVP_HOOK(PLAYER_EVENT_ON_PVP_OUTDOOR_OBJECTIVE);
++    Push(player);
++    Push(outdoorPvPTypeId);
++    Push(objectiveId);
++    Push(objectiveEntry);
++    Push(objectiveTier);
++    Push(mapId);
++    Push(zoneId);
++    Push(team);
++    Push(participantCount);
++    Push(eventToken);
++    CallAllFunctions(PlayerEventBindings, key);
++}
++
++void ALE::OnPvPDuelComplete(Player* winner, Player* loser, DuelCompleteType type, uint32 durationSeconds,
++    bool sameAccount, bool sameIp, bool winnerIsBot, bool loserIsBot, std::string const& eventToken)
++{
++    START_PVP_HOOK(PLAYER_EVENT_ON_PVP_DUEL_COMPLETE);
++    Push(winner);
++    Push(loser);
++    Push(type);
++    Push(durationSeconds);
++    Push(sameAccount);
++    Push(sameIp);
++    Push(winnerIsBot);
++    Push(loserIsBot);
++    Push(eventToken);
++    CallAllFunctions(PlayerEventBindings, key);
++}
++
++#undef START_PVP_HOOK
+diff --git a/src/PvPMeritTracker.cpp b/src/PvPMeritTracker.cpp
+new file mode 100644
+index 0000000..4499ef6
+--- /dev/null
++++ b/src/PvPMeritTracker.cpp
+@@ -0,0 +1,795 @@
++/*
++ * Copyright (C) 2010 - 2025 Eluna Lua Engine <https://elunaluaengine.github.io/>
++ * This program is free software licensed under GPL version 3
++ */
++
++#include "PvPMeritTracker.h"
++#include "Battlefield.h"
++#include "BattlefieldMgr.h"
++#include "Battleground.h"
++#include "BattlegroundScore.h"
++#include "GameObject.h"
++#include "GameTime.h"
++#include "LuaEngine.h"
++#include "ObjectAccessor.h"
++#include "Player.h"
++#include "StringFormat.h"
++#include "Unit.h"
++#include "WorldSession.h"
++#include <algorithm>
++#include <chrono>
++#include <iomanip>
++#include <limits>
++#include <set>
++#include <sstream>
++#include <unordered_map>
++#include <unordered_set>
++#include <vector>
++
++namespace
++{
++constexpr uint8 PVP_MATCH_KIND_BATTLEGROUND = 1;
++constexpr uint8 PVP_MATCH_KIND_ARENA = 2;
++constexpr uint8 PVP_RESULT_LOSS = 0;
++constexpr uint8 PVP_RESULT_WIN = 1;
++constexpr uint8 PVP_RESULT_DRAW = 2;
++constexpr uint8 PVP_OBJECTIVE_TIER_STANDARD = 1;
++
++using Clock = std::chrono::steady_clock;
++
++uint64 GetGuidKey(Player const* player)
++{
++    return player->GetGUID().GetRawValue();
++}
++
++uint64 GetEpochMilliseconds()
++{
++    return uint64(std::chrono::duration_cast<std::chrono::milliseconds>(
++        GameTime::GetSystemTime().time_since_epoch()).count());
++}
++
++uint32 GetElapsedSeconds(Clock::time_point start)
++{
++    auto const elapsed = std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - start).count();
++    return uint32(std::clamp<int64>(elapsed, 0, std::numeric_limits<uint32>::max()));
++}
++
++uint32 SaturatingAdd(uint32 current, uint32 value)
++{
++    if (value > std::numeric_limits<uint32>::max() - current)
++        return std::numeric_limits<uint32>::max();
++
++    return current + value;
++}
++
++struct ParticipantState
++{
++    uint64 Guid = 0;
++    uint32 AccountId = 0;
++    uint8 Team = uint8(TEAM_NEUTRAL);
++    bool Bot = false;
++    std::string RemoteAddress;
++    bool Present = false;
++    uint32 JoinedAtSecond = 0;
++    uint32 PresenceSeconds = 0;
++    std::unordered_set<uint32> PresenceBuckets;
++    std::unordered_set<uint32> ActiveBuckets;
++    uint32 TacticalActions = 0;
++    uint32 PvPDamageDone = 0;
++    uint32 PvPHealingDone = 0;
++    uint32 PlayerKills = 0;
++    uint32 ObjectiveMajor = 0;
++    uint32 ObjectiveStandard = 0;
++    uint32 ObjectiveAssist = 0;
++    bool Deserter = false;
++    bool Settled = false;
++};
++
++struct BattlegroundState
++{
++    uint32 InstanceId = 0;
++    bool Started = false;
++    Clock::time_point StartedAt;
++    uint64 StartedEpochMilliseconds = 0;
++    std::unordered_map<uint64, ParticipantState> Participants;
++};
++
++struct BattlefieldState
++{
++    uint32 BattleId = 0;
++    Clock::time_point StartedAt;
++    uint64 StartedEpochMilliseconds = 0;
++    uint8 DefenderTeamAtStart = uint8(TEAM_NEUTRAL);
++    uint8 AttackerTeamAtStart = uint8(TEAM_NEUTRAL);
++    std::unordered_map<uint64, ParticipantState> Participants;
++};
++
++struct DuelTrackingState
++{
++    Clock::time_point StartedAt;
++    uint64 StartedEpochMilliseconds = 0;
++};
++
++ParticipantState& RegisterParticipant(std::unordered_map<uint64, ParticipantState>& participants, Player* player, TeamId team)
++{
++    ParticipantState& participant = participants[GetGuidKey(player)];
++    participant.Guid = GetGuidKey(player);
++    participant.Team = uint8(team);
++
++    if (WorldSession* session = player->GetSession())
++    {
++        participant.AccountId = session->GetAccountId();
++        participant.Bot = session->IsBot();
++        participant.RemoteAddress = session->GetRemoteAddress();
++    }
++
++    return participant;
++}
++
++void OpenPresence(ParticipantState& participant, uint32 elapsedSeconds)
++{
++    if (participant.Present)
++        return;
++
++    participant.Present = true;
++    participant.JoinedAtSecond = elapsedSeconds;
++}
++
++void ClosePresence(ParticipantState& participant, uint32 elapsedSeconds)
++{
++    if (!participant.Present)
++        return;
++
++    uint32 const endSecond = std::max(elapsedSeconds, participant.JoinedAtSecond);
++    participant.PresenceSeconds = SaturatingAdd(participant.PresenceSeconds, endSecond - participant.JoinedAtSecond);
++
++    uint32 const firstBucket = participant.JoinedAtSecond / 60;
++    uint32 const finalBucket = endSecond == participant.JoinedAtSecond ? firstBucket : (endSecond - 1) / 60;
++    for (uint32 bucket = firstBucket; bucket <= finalBucket; ++bucket)
++    {
++        participant.PresenceBuckets.insert(bucket);
++        if (bucket == std::numeric_limits<uint32>::max())
++            break;
++    }
++
++    participant.Present = false;
++}
++
++void MarkActive(ParticipantState& participant, uint32 elapsedSeconds)
++{
++    participant.ActiveBuckets.insert(elapsedSeconds / 60);
++}
++
++bool IsObjectiveScore(uint32 type)
++{
++    switch (type)
++    {
++        case SCORE_FLAG_CAPTURES:
++        case SCORE_FLAG_RETURNS:
++        case SCORE_BASES_ASSAULTED:
++        case SCORE_BASES_DEFENDED:
++        case SCORE_GRAVEYARDS_ASSAULTED:
++        case SCORE_GRAVEYARDS_DEFENDED:
++        case SCORE_TOWERS_ASSAULTED:
++        case SCORE_TOWERS_DEFENDED:
++        case SCORE_MINES_CAPTURED:
++        case SCORE_DESTROYED_DEMOLISHER:
++        case SCORE_DESTROYED_WALL:
++            return true;
++        default:
++            return false;
++    }
++}
++
++std::string BuildOpponentRosterKey(std::set<uint32> const& accountIds)
++{
++    uint64 hash = 14695981039346656037ULL;
++    bool first = true;
++    for (uint32 accountId : accountIds)
++    {
++        if (!first)
++        {
++            hash ^= uint8(':');
++            hash *= 1099511628211ULL;
++        }
++
++        std::string const account = std::to_string(accountId);
++        for (unsigned char character : account)
++        {
++            hash ^= character;
++            hash *= 1099511628211ULL;
++        }
++        first = false;
++    }
++
++    std::ostringstream result;
++    result << "accounts_" << std::hex << std::nouppercase << std::setw(16) << std::setfill('0') << hash
++           << '_' << std::dec << accountIds.size();
++    return result.str();
++}
++
++struct OpponentSummary
++{
++    uint32 OpponentCount = 0;
++    uint32 RealOpponentCount = 0;
++    uint32 BotOpponentCount = 0;
++    uint32 UniqueOpponentAccounts = 0;
++    bool SameAccountOpponent = false;
++    bool SameIpOpponent = false;
++    std::string RosterKey;
++};
++
++OpponentSummary BuildOpponentSummary(std::unordered_map<uint64, ParticipantState> const& participants,
++    ParticipantState const& recipient)
++{
++    OpponentSummary summary;
++    std::set<uint32> accountIds;
++
++    for (auto const& [guid, participant] : participants)
++    {
++        if (guid == recipient.Guid || participant.Team == recipient.Team ||
++            (!participant.Present && !participant.PresenceSeconds))
++            continue;
++
++        ++summary.OpponentCount;
++        if (participant.Bot)
++            ++summary.BotOpponentCount;
++        else
++            ++summary.RealOpponentCount;
++
++        if (participant.AccountId)
++            accountIds.insert(participant.AccountId);
++        if (participant.AccountId && participant.AccountId == recipient.AccountId)
++            summary.SameAccountOpponent = true;
++        if (!recipient.RemoteAddress.empty() && participant.RemoteAddress == recipient.RemoteAddress)
++            summary.SameIpOpponent = true;
++    }
++
++    summary.UniqueOpponentAccounts = uint32(accountIds.size());
++    summary.RosterKey = BuildOpponentRosterKey(accountIds);
++    return summary;
++}
++
++std::string BuildDuelKey(Player const* player1, Player const* player2)
++{
++    uint64 const first = std::min(GetGuidKey(player1), GetGuidKey(player2));
++    uint64 const second = std::max(GetGuidKey(player1), GetGuidKey(player2));
++    return Acore::StringFormat("{}:{}", first, second);
++}
++
++Player* GetControllingPlayer(Unit* unit)
++{
++    return unit ? unit->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr;
++}
++}
++
++struct PvPMeritTracker::Impl
++{
++    std::unordered_map<uint32, BattlegroundState> Battlegrounds;
++    std::unordered_map<uint32, BattlefieldState> Battlefields;
++    std::unordered_map<std::string, DuelTrackingState> Duels;
++};
++
++PvPMeritTracker& PvPMeritTracker::Instance()
++{
++    static PvPMeritTracker instance;
++    return instance;
++}
++
++PvPMeritTracker::PvPMeritTracker() : _impl(std::make_unique<Impl>()) { }
++
++PvPMeritTracker::~PvPMeritTracker() = default;
++
++void PvPMeritTracker::OnBattlegroundStart(Battleground* bg)
++{
++    if (!bg)
++        return;
++
++    BattlegroundState& state = _impl->Battlegrounds[bg->GetInstanceID()];
++    state = BattlegroundState{};
++    state.InstanceId = bg->GetInstanceID();
++    state.Started = true;
++    state.StartedAt = Clock::now();
++    state.StartedEpochMilliseconds = GetEpochMilliseconds();
++
++    for (auto const& playerPair : bg->GetPlayers())
++    {
++        Player* player = playerPair.second;
++        if (!player)
++            continue;
++
++        ParticipantState& participant = RegisterParticipant(state.Participants, player, player->GetBgTeamId());
++        OpenPresence(participant, 0);
++    }
++}
++
++void PvPMeritTracker::OnBattlegroundAddPlayer(Battleground* bg, Player* player)
++{
++    if (!bg || !player)
++        return;
++
++    BattlegroundState& state = _impl->Battlegrounds[bg->GetInstanceID()];
++    state.InstanceId = bg->GetInstanceID();
++    ParticipantState& participant = RegisterParticipant(state.Participants, player, player->GetBgTeamId());
++    if (state.Started)
++        OpenPresence(participant, GetElapsedSeconds(state.StartedAt));
++}
++
++void PvPMeritTracker::OnBattlegroundRemovePlayer(Battleground* bg, Player* player)
++{
++    if (!bg || !player)
++        return;
++
++    auto stateItr = _impl->Battlegrounds.find(bg->GetInstanceID());
++    if (stateItr == _impl->Battlegrounds.end())
++        return;
++
++    auto participantItr = stateItr->second.Participants.find(GetGuidKey(player));
++    if (participantItr != stateItr->second.Participants.end() && stateItr->second.Started)
++        ClosePresence(participantItr->second, GetElapsedSeconds(stateItr->second.StartedAt));
++}
++
++void PvPMeritTracker::OnBattlegroundScoreUpdate(Battleground* bg, Player* player, uint32 type, uint32 value)
++{
++    if (!bg || !player || !value)
++        return;
++
++    auto stateItr = _impl->Battlegrounds.find(bg->GetInstanceID());
++    if (stateItr == _impl->Battlegrounds.end() || !stateItr->second.Started)
++        return;
++
++    ParticipantState& participant = RegisterParticipant(stateItr->second.Participants, player, player->GetBgTeamId());
++    uint32 const elapsed = GetElapsedSeconds(stateItr->second.StartedAt);
++    OpenPresence(participant, elapsed);
++
++    if (type == SCORE_KILLING_BLOWS || type == SCORE_HONORABLE_KILLS || type == SCORE_BONUS_HONOR || IsObjectiveScore(type))
++        MarkActive(participant, elapsed);
++
++    if (type == SCORE_KILLING_BLOWS || IsObjectiveScore(type))
++        participant.TacticalActions = SaturatingAdd(participant.TacticalActions, value);
++}
++
++void PvPMeritTracker::OnBattlegroundEndReward(Battleground* bg, Player* player, TeamId winnerTeam)
++{
++    if (!bg || !player)
++        return;
++
++    BattlegroundState& state = _impl->Battlegrounds[bg->GetInstanceID()];
++    if (!state.Started)
++    {
++        state.InstanceId = bg->GetInstanceID();
++        state.Started = true;
++        state.StartedAt = Clock::now();
++        state.StartedEpochMilliseconds = GetEpochMilliseconds();
++    }
++
++    ParticipantState& participant = RegisterParticipant(state.Participants, player, player->GetBgTeamId());
++    if (participant.Settled)
++        return;
++
++    uint32 const elapsed = GetElapsedSeconds(state.StartedAt);
++    OpenPresence(participant, elapsed);
++    ClosePresence(participant, elapsed);
++
++    PvPMatchSettlement settlement;
++    settlement.MatchKind = bg->isArena() ? PVP_MATCH_KIND_ARENA : PVP_MATCH_KIND_BATTLEGROUND;
++    settlement.Result = winnerTeam == TEAM_NEUTRAL ? PVP_RESULT_DRAW :
++        (player->GetBgTeamId() == winnerTeam ? PVP_RESULT_WIN : PVP_RESULT_LOSS);
++    settlement.DurationSeconds = elapsed;
++    settlement.ActiveSeconds = participant.PresenceSeconds;
++    settlement.PresenceBuckets = uint32(participant.PresenceBuckets.size());
++    settlement.ActiveBuckets = uint32(participant.ActiveBuckets.size());
++    settlement.TacticalActions = participant.TacticalActions;
++    settlement.BattlegroundTypeId = uint8(bg->GetBgTypeID(true));
++    settlement.MapId = bg->GetMapId();
++    settlement.InstanceId = bg->GetInstanceID();
++    settlement.ArenaType = bg->GetArenaType();
++    settlement.Rated = bg->isRated();
++    settlement.BracketId = bg->GetUniqueBracketId();
++    settlement.PlayerTeam = uint8(player->GetBgTeamId());
++    settlement.WinnerTeam = uint8(winnerTeam);
++    settlement.PvPDamageDone = participant.PvPDamageDone;
++    settlement.PvPHealingDone = participant.PvPHealingDone;
++    settlement.IsBot = participant.Bot;
++    settlement.AccountId = participant.AccountId;
++    settlement.Inactive = player->HasAura(SPELL_AURA_PLAYER_INACTIVE);
++    settlement.Deserter = participant.Deserter;
++
++    auto const scoreItr = bg->GetPlayerScores()->find(player->GetGUID().GetCounter());
++    if (scoreItr != bg->GetPlayerScores()->end() && scoreItr->second)
++    {
++        BattlegroundScore const* score = scoreItr->second;
++        settlement.KillingBlows = score->GetKillingBlows();
++        settlement.Deaths = score->GetDeaths();
++        settlement.HonorableKills = score->GetHonorableKills();
++        settlement.BonusHonor = score->GetBonusHonor();
++        settlement.DamageDone = score->GetDamageDone();
++        settlement.HealingDone = score->GetHealingDone();
++        settlement.Objective1 = score->GetAttr1();
++        settlement.Objective2 = score->GetAttr2();
++        settlement.Objective3 = score->GetAttr3();
++        settlement.Objective4 = score->GetAttr4();
++        settlement.Objective5 = score->GetAttr5();
++    }
++
++    OpponentSummary const opponents = BuildOpponentSummary(state.Participants, participant);
++    settlement.OpponentCount = opponents.OpponentCount;
++    settlement.RealOpponentCount = opponents.RealOpponentCount;
++    settlement.BotOpponentCount = opponents.BotOpponentCount;
++    settlement.UniqueOpponentAccounts = opponents.UniqueOpponentAccounts;
++    settlement.SameAccountOpponent = opponents.SameAccountOpponent;
++    settlement.SameIpOpponent = opponents.SameIpOpponent;
++    settlement.OpponentRosterKey = opponents.RosterKey;
++    settlement.EventToken = Acore::StringFormat("match:{}:{}:{}", state.InstanceId,
++        state.StartedEpochMilliseconds, participant.Guid);
++
++    participant.Settled = true;
++    sALE->OnPvPMatchComplete(player, settlement);
++}
++
++void PvPMeritTracker::OnBattlegroundDestroy(Battleground* bg)
++{
++    if (bg)
++        _impl->Battlegrounds.erase(bg->GetInstanceID());
++}
++
++void PvPMeritTracker::OnBattlegroundDesertion(Player* player, BattlegroundDesertionType /*type*/)
++{
++    if (!player)
++        return;
++
++    Battleground* bg = player->GetBattleground();
++    if (!bg)
++        return;
++
++    auto stateItr = _impl->Battlegrounds.find(bg->GetInstanceID());
++    if (stateItr == _impl->Battlegrounds.end())
++        return;
++
++    ParticipantState& participant = RegisterParticipant(stateItr->second.Participants, player, player->GetBgTeamId());
++    participant.Deserter = true;
++}
++
++void PvPMeritTracker::OnPvPHonor(Player* player, uint32 finalHonor, uint8 honorSource)
++{
++    if (!player || !finalHonor || honorSource < 1 || honorSource > 3)
++        return;
++
++    if (Battleground* bg = player->GetBattleground())
++    {
++        auto stateItr = _impl->Battlegrounds.find(bg->GetInstanceID());
++        if (stateItr != _impl->Battlegrounds.end() && stateItr->second.Started)
++        {
++            ParticipantState& participant = RegisterParticipant(stateItr->second.Participants, player, player->GetBgTeamId());
++            MarkActive(participant, GetElapsedSeconds(stateItr->second.StartedAt));
++            return;
++        }
++    }
++
++    if (Battlefield* battlefield = sBattlefieldMgr->GetBattlefieldToZoneId(player->GetZoneId()))
++        if (battlefield->IsWarTime() && battlefield->IsPlayerInBattlefield(player->GetGUID()))
++        {
++            auto stateItr = _impl->Battlefields.find(battlefield->GetBattleId());
++            if (stateItr != _impl->Battlefields.end())
++            {
++                ParticipantState& participant = RegisterParticipant(stateItr->second.Participants, player, player->GetTeamId());
++                MarkActive(participant, GetElapsedSeconds(stateItr->second.StartedAt));
++            }
++        }
++}
++
++void PvPMeritTracker::OnPvPDamage(Unit* attacker, Unit* receiver, uint32 damage)
++{
++    Player* actor = GetControllingPlayer(attacker);
++    Player* target = GetControllingPlayer(receiver);
++    if (!actor || !target || actor == target || !damage)
++        return;
++
++    uint32 const effectiveDamage = std::min(damage, receiver->GetHealth());
++    if (!effectiveDamage)
++        return;
++
++    Battleground* actorBg = actor->GetBattleground();
++    Battleground* targetBg = target->GetBattleground();
++    if (actorBg && targetBg && actorBg->GetInstanceID() == targetBg->GetInstanceID() &&
++        actor->GetBgTeamId() != target->GetBgTeamId())
++    {
++        auto stateItr = _impl->Battlegrounds.find(actorBg->GetInstanceID());
++        if (stateItr != _impl->Battlegrounds.end() && stateItr->second.Started)
++        {
++            ParticipantState& participant = RegisterParticipant(stateItr->second.Participants, actor, actor->GetBgTeamId());
++            uint32 const elapsed = GetElapsedSeconds(stateItr->second.StartedAt);
++            participant.PvPDamageDone = SaturatingAdd(participant.PvPDamageDone, effectiveDamage);
++            MarkActive(participant, elapsed);
++        }
++        return;
++    }
++
++    Battlefield* battlefield = sBattlefieldMgr->GetBattlefieldToZoneId(actor->GetZoneId());
++    if (!battlefield || battlefield != sBattlefieldMgr->GetBattlefieldToZoneId(target->GetZoneId()) ||
++        actor->GetTeamId() == target->GetTeamId() ||
++        !battlefield->IsWarTime() || !battlefield->IsPlayerInBattlefield(actor->GetGUID()) ||
++        !battlefield->IsPlayerInBattlefield(target->GetGUID()))
++        return;
++
++    auto stateItr = _impl->Battlefields.find(battlefield->GetBattleId());
++    if (stateItr == _impl->Battlefields.end())
++        return;
++
++    ParticipantState& participant = RegisterParticipant(stateItr->second.Participants, actor, actor->GetTeamId());
++    uint32 const elapsed = GetElapsedSeconds(stateItr->second.StartedAt);
++    participant.PvPDamageDone = SaturatingAdd(participant.PvPDamageDone, effectiveDamage);
++    MarkActive(participant, elapsed);
++}
++
++void PvPMeritTracker::OnPvPHeal(Unit* healer, Unit* receiver, uint32 gain)
++{
++    Player* actor = GetControllingPlayer(healer);
++    Player* target = GetControllingPlayer(receiver);
++    if (!actor || !target || actor == target || !gain)
++        return;
++
++    Battleground* actorBg = actor->GetBattleground();
++    Battleground* targetBg = target->GetBattleground();
++    if (actorBg && targetBg && actorBg->GetInstanceID() == targetBg->GetInstanceID() &&
++        actor->GetBgTeamId() == target->GetBgTeamId())
++    {
++        auto stateItr = _impl->Battlegrounds.find(actorBg->GetInstanceID());
++        if (stateItr != _impl->Battlegrounds.end() && stateItr->second.Started)
++        {
++            ParticipantState& participant = RegisterParticipant(stateItr->second.Participants, actor, actor->GetBgTeamId());
++            uint32 const elapsed = GetElapsedSeconds(stateItr->second.StartedAt);
++            participant.PvPHealingDone = SaturatingAdd(participant.PvPHealingDone, gain);
++            MarkActive(participant, elapsed);
++        }
++        return;
++    }
++
++    Battlefield* battlefield = sBattlefieldMgr->GetBattlefieldToZoneId(actor->GetZoneId());
++    if (!battlefield || battlefield != sBattlefieldMgr->GetBattlefieldToZoneId(target->GetZoneId()) ||
++        actor->GetTeamId() != target->GetTeamId() ||
++        !battlefield->IsWarTime() || !battlefield->IsPlayerInBattlefield(actor->GetGUID()) ||
++        !battlefield->IsPlayerInBattlefield(target->GetGUID()))
++        return;
++
++    auto stateItr = _impl->Battlefields.find(battlefield->GetBattleId());
++    if (stateItr == _impl->Battlefields.end())
++        return;
++
++    ParticipantState& participant = RegisterParticipant(stateItr->second.Participants, actor, actor->GetTeamId());
++    uint32 const elapsed = GetElapsedSeconds(stateItr->second.StartedAt);
++    participant.PvPHealingDone = SaturatingAdd(participant.PvPHealingDone, gain);
++    MarkActive(participant, elapsed);
++}
++
++void PvPMeritTracker::OnBattlefieldWarStart(Battlefield* battlefield)
++{
++    if (!battlefield)
++        return;
++
++    BattlefieldState& state = _impl->Battlefields[battlefield->GetBattleId()];
++    state = BattlefieldState{};
++    state.BattleId = battlefield->GetBattleId();
++    state.StartedAt = Clock::now();
++    state.StartedEpochMilliseconds = GetEpochMilliseconds();
++    state.DefenderTeamAtStart = uint8(battlefield->GetDefenderTeam());
++    state.AttackerTeamAtStart = uint8(battlefield->GetAttackerTeam());
++}
++
++void PvPMeritTracker::OnBattlefieldPlayerJoinWar(Battlefield* battlefield, Player* player)
++{
++    if (!battlefield || !player)
++        return;
++
++    auto stateItr = _impl->Battlefields.find(battlefield->GetBattleId());
++    if (stateItr == _impl->Battlefields.end())
++        return;
++
++    ParticipantState& participant = RegisterParticipant(stateItr->second.Participants, player, player->GetTeamId());
++    OpenPresence(participant, GetElapsedSeconds(stateItr->second.StartedAt));
++}
++
++void PvPMeritTracker::OnBattlefieldPlayerLeaveWar(Battlefield* battlefield, Player* player)
++{
++    if (!battlefield || !player)
++        return;
++
++    auto stateItr = _impl->Battlefields.find(battlefield->GetBattleId());
++    if (stateItr == _impl->Battlefields.end())
++        return;
++
++    auto participantItr = stateItr->second.Participants.find(GetGuidKey(player));
++    if (participantItr == stateItr->second.Participants.end())
++        return;
++
++    ClosePresence(participantItr->second, GetElapsedSeconds(stateItr->second.StartedAt));
++    participantItr->second.Deserter = true;
++}
++
++void PvPMeritTracker::OnBattlefieldWarEnd(Battlefield* battlefield, bool endedByTimer)
++{
++    if (!battlefield)
++        return;
++
++    auto stateItr = _impl->Battlefields.find(battlefield->GetBattleId());
++    if (stateItr == _impl->Battlefields.end())
++        return;
++
++    BattlefieldState& state = stateItr->second;
++    uint32 const elapsed = GetElapsedSeconds(state.StartedAt);
++    TeamId const winnerTeam = battlefield->GetDefenderTeam();
++
++    std::vector<ObjectGuid> finishers;
++    for (uint8 team = 0; team < PVP_TEAMS_COUNT; ++team)
++        for (ObjectGuid const& playerGuid : battlefield->GetPlayersInWarSet(TeamId(team)))
++            if (Player* player = ObjectAccessor::FindPlayer(playerGuid))
++            {
++                ParticipantState& participant = RegisterParticipant(state.Participants, player, player->GetTeamId());
++                OpenPresence(participant, elapsed);
++                finishers.push_back(playerGuid);
++            }
++
++    for (ObjectGuid const& playerGuid : finishers)
++        if (Player* player = ObjectAccessor::FindPlayer(playerGuid))
++        {
++            ParticipantState& participant = RegisterParticipant(state.Participants, player, player->GetTeamId());
++            if (participant.Settled)
++                continue;
++
++            OpenPresence(participant, elapsed);
++            ClosePresence(participant, elapsed);
++
++            PvPBattlefieldSettlement settlement;
++            settlement.BattlefieldTypeId = battlefield->GetTypeId();
++            settlement.BattleId = battlefield->GetBattleId();
++            settlement.ZoneId = battlefield->GetZoneId();
++            settlement.MapId = battlefield->GetMapId();
++            settlement.Result = player->GetTeamId() == winnerTeam ? PVP_RESULT_WIN : PVP_RESULT_LOSS;
++            settlement.DurationSeconds = elapsed;
++            settlement.ActiveSeconds = participant.PresenceSeconds;
++            settlement.PresenceBuckets = uint32(participant.PresenceBuckets.size());
++            settlement.ActiveBuckets = uint32(participant.ActiveBuckets.size());
++            settlement.TacticalActions = participant.TacticalActions;
++            settlement.PlayerTeam = uint8(player->GetTeamId());
++            settlement.WinnerTeam = uint8(winnerTeam);
++            settlement.AttackerTeam = state.AttackerTeamAtStart;
++            settlement.DefenderTeamAtStart = state.DefenderTeamAtStart;
++            settlement.EndedByTimer = endedByTimer;
++            settlement.IsBot = participant.Bot;
++            settlement.AccountId = participant.AccountId;
++            settlement.PlayerKills = participant.PlayerKills;
++            settlement.PvPDamageDone = participant.PvPDamageDone;
++            settlement.PvPHealingDone = participant.PvPHealingDone;
++            settlement.ObjectiveMajor = participant.ObjectiveMajor;
++            settlement.ObjectiveStandard = participant.ObjectiveStandard;
++            settlement.ObjectiveAssist = participant.ObjectiveAssist;
++            settlement.Inactive = player->HasAura(SPELL_AURA_PLAYER_INACTIVE);
++            settlement.Deserter = participant.Deserter;
++
++            OpponentSummary const opponents = BuildOpponentSummary(state.Participants, participant);
++            settlement.RealOpponentCount = opponents.RealOpponentCount;
++            settlement.BotOpponentCount = opponents.BotOpponentCount;
++            settlement.UniqueOpponentAccounts = opponents.UniqueOpponentAccounts;
++            settlement.SameAccountOpponent = opponents.SameAccountOpponent;
++            settlement.SameIpOpponent = opponents.SameIpOpponent;
++            settlement.OpponentRosterKey = opponents.RosterKey;
++            settlement.EventToken = Acore::StringFormat("battlefield:{}:{}:{}", state.BattleId,
++                state.StartedEpochMilliseconds, participant.Guid);
++
++            participant.Settled = true;
++            sALE->OnPvPBattlefieldComplete(player, settlement);
++        }
++
++    _impl->Battlefields.erase(stateItr);
++}
++
++void PvPMeritTracker::OnBattlefieldPlayerKill(Battlefield* battlefield, Player* killer, Player* /*victim*/)
++{
++    if (!battlefield || !killer || !battlefield->IsWarTime() || !battlefield->IsPlayerInBattlefield(killer->GetGUID()))
++        return;
++
++    auto stateItr = _impl->Battlefields.find(battlefield->GetBattleId());
++    if (stateItr == _impl->Battlefields.end())
++        return;
++
++    ParticipantState& participant = RegisterParticipant(stateItr->second.Participants, killer, killer->GetTeamId());
++    uint32 const elapsed = GetElapsedSeconds(stateItr->second.StartedAt);
++    participant.PlayerKills = SaturatingAdd(participant.PlayerKills, 1);
++    participant.TacticalActions = SaturatingAdd(participant.TacticalActions, 1);
++    MarkActive(participant, elapsed);
++}
++
++void PvPMeritTracker::OnBattlefieldObjective(Battlefield* battlefield, Player* player, uint32 /*objectiveId*/, uint8 objectiveTier)
++{
++    if (!battlefield || !player || !battlefield->IsWarTime())
++        return;
++
++    auto stateItr = _impl->Battlefields.find(battlefield->GetBattleId());
++    if (stateItr == _impl->Battlefields.end())
++        return;
++
++    ParticipantState& participant = RegisterParticipant(stateItr->second.Participants, player, player->GetTeamId());
++    if (objectiveTier == PVP_OBJECTIVE_TIER_STANDARD)
++        participant.ObjectiveStandard = SaturatingAdd(participant.ObjectiveStandard, 1);
++    else
++        participant.ObjectiveMajor = SaturatingAdd(participant.ObjectiveMajor, 1);
++    participant.TacticalActions = SaturatingAdd(participant.TacticalActions, 1);
++    MarkActive(participant, GetElapsedSeconds(stateItr->second.StartedAt));
++}
++
++void PvPMeritTracker::OnBattlefieldBuildingDamaged(GameObject* gameObject, Player* player)
++{
++    if (!gameObject || !player || gameObject->GetGoType() != GAMEOBJECT_TYPE_DESTRUCTIBLE_BUILDING)
++        return;
++
++    Battlefield* battlefield = sBattlefieldMgr->GetBattlefieldToZoneId(gameObject->GetZoneId());
++    if (!battlefield || !battlefield->IsWarTime() || !battlefield->IsPlayerInBattlefield(player->GetGUID()))
++        return;
++
++    auto stateItr = _impl->Battlefields.find(battlefield->GetBattleId());
++    if (stateItr == _impl->Battlefields.end())
++        return;
++
++    ParticipantState& participant = RegisterParticipant(stateItr->second.Participants, player, player->GetTeamId());
++    participant.ObjectiveAssist = SaturatingAdd(participant.ObjectiveAssist, 1);
++    participant.TacticalActions = SaturatingAdd(participant.TacticalActions, 1);
++    MarkActive(participant, GetElapsedSeconds(stateItr->second.StartedAt));
++}
++
++void PvPMeritTracker::OnBattlefieldBuildingDestroyed(GameObject* gameObject, Player* player)
++{
++    if (!gameObject || !player || gameObject->GetGoType() != GAMEOBJECT_TYPE_DESTRUCTIBLE_BUILDING)
++        return;
++
++    Battlefield* battlefield = sBattlefieldMgr->GetBattlefieldToZoneId(gameObject->GetZoneId());
++    if (!battlefield || !battlefield->IsWarTime() || !battlefield->IsPlayerInBattlefield(player->GetGUID()))
++        return;
++
++    auto stateItr = _impl->Battlefields.find(battlefield->GetBattleId());
++    if (stateItr == _impl->Battlefields.end())
++        return;
++
++    ParticipantState& participant = RegisterParticipant(stateItr->second.Participants, player, player->GetTeamId());
++    participant.ObjectiveMajor = SaturatingAdd(participant.ObjectiveMajor, 1);
++    participant.TacticalActions = SaturatingAdd(participant.TacticalActions, 1);
++    MarkActive(participant, GetElapsedSeconds(stateItr->second.StartedAt));
++}
++
++void PvPMeritTracker::OnDuelStart(Player* player1, Player* player2)
++{
++    if (!player1 || !player2)
++        return;
++
++    DuelTrackingState& state = _impl->Duels[BuildDuelKey(player1, player2)];
++    state.StartedAt = Clock::now();
++    state.StartedEpochMilliseconds = GetEpochMilliseconds();
++}
++
++void PvPMeritTracker::OnDuelEnd(Player* winner, Player* loser, DuelCompleteType type)
++{
++    if (!winner || !loser)
++        return;
++
++    std::string const duelKey = BuildDuelKey(winner, loser);
++    auto stateItr = _impl->Duels.find(duelKey);
++    if (stateItr == _impl->Duels.end())
++        return;
++
++    DuelTrackingState const state = stateItr->second;
++    _impl->Duels.erase(stateItr);
++
++    WorldSession* winnerSession = winner->GetSession();
++    WorldSession* loserSession = loser->GetSession();
++    bool const sameAccount = winnerSession && loserSession && winnerSession->GetAccountId() == loserSession->GetAccountId();
++    bool const sameIp = winnerSession && loserSession &&
++        winnerSession->GetRemoteAddress() == loserSession->GetRemoteAddress();
++    bool const winnerBot = winnerSession && winnerSession->IsBot();
++    bool const loserBot = loserSession && loserSession->IsBot();
++    uint64 const firstGuid = std::min(GetGuidKey(winner), GetGuidKey(loser));
++    uint64 const secondGuid = std::max(GetGuidKey(winner), GetGuidKey(loser));
++    std::string const eventToken = Acore::StringFormat("duel:{}:{}:{}:{}:{}", firstGuid, secondGuid,
++        state.StartedEpochMilliseconds, GetGuidKey(winner), uint8(type));
++
++    sALE->OnPvPDuelComplete(winner, loser, type, GetElapsedSeconds(state.StartedAt), sameAccount, sameIp,
++        winnerBot, loserBot, eventToken);
++}
+diff --git a/src/PvPMeritTracker.h b/src/PvPMeritTracker.h
+new file mode 100644
+index 0000000..bb582f1
+--- /dev/null
++++ b/src/PvPMeritTracker.h
+@@ -0,0 +1,143 @@
++/*
++ * Copyright (C) 2010 - 2025 Eluna Lua Engine <https://elunaluaengine.github.io/>
++ * This program is free software licensed under GPL version 3
++ */
++
++#ifndef ALE_PVP_MERIT_TRACKER_H
++#define ALE_PVP_MERIT_TRACKER_H
++
++#include "Common.h"
++#include "SharedDefines.h"
++#include <memory>
++#include <string>
++
++class Battlefield;
++class Battleground;
++class GameObject;
++class Player;
++class Unit;
++enum BattlegroundDesertionType : uint8;
++
++struct PvPMatchSettlement
++{
++    uint8 MatchKind = 0;
++    uint8 Result = 0;
++    uint32 DurationSeconds = 0;
++    uint32 ActiveSeconds = 0;
++    uint32 PresenceBuckets = 0;
++    uint32 ActiveBuckets = 0;
++    uint32 TacticalActions = 0;
++    uint8 BattlegroundTypeId = 0;
++    uint32 MapId = 0;
++    uint32 InstanceId = 0;
++    uint8 ArenaType = 0;
++    bool Rated = false;
++    uint8 BracketId = 0;
++    uint8 PlayerTeam = 0;
++    uint8 WinnerTeam = 0;
++    uint32 KillingBlows = 0;
++    uint32 Deaths = 0;
++    uint32 HonorableKills = 0;
++    uint32 BonusHonor = 0;
++    uint32 DamageDone = 0;
++    uint32 HealingDone = 0;
++    uint32 PvPDamageDone = 0;
++    uint32 PvPHealingDone = 0;
++    uint32 Objective1 = 0;
++    uint32 Objective2 = 0;
++    uint32 Objective3 = 0;
++    uint32 Objective4 = 0;
++    uint32 Objective5 = 0;
++    bool IsBot = false;
++    uint32 AccountId = 0;
++    uint32 OpponentCount = 0;
++    uint32 RealOpponentCount = 0;
++    uint32 BotOpponentCount = 0;
++    uint32 UniqueOpponentAccounts = 0;
++    bool SameAccountOpponent = false;
++    bool SameIpOpponent = false;
++    bool Inactive = false;
++    bool Deserter = false;
++    std::string OpponentRosterKey;
++    std::string EventToken;
++};
++
++struct PvPBattlefieldSettlement
++{
++    uint32 BattlefieldTypeId = 0;
++    uint32 BattleId = 0;
++    uint32 ZoneId = 0;
++    uint32 MapId = 0;
++    uint8 Result = 0;
++    uint32 DurationSeconds = 0;
++    uint32 ActiveSeconds = 0;
++    uint32 PresenceBuckets = 0;
++    uint32 ActiveBuckets = 0;
++    uint32 TacticalActions = 0;
++    uint8 PlayerTeam = 0;
++    uint8 WinnerTeam = 0;
++    uint8 AttackerTeam = 0;
++    uint8 DefenderTeamAtStart = 0;
++    bool EndedByTimer = false;
++    bool IsBot = false;
++    uint32 AccountId = 0;
++    uint32 PlayerKills = 0;
++    uint32 PvPDamageDone = 0;
++    uint32 PvPHealingDone = 0;
++    uint32 ObjectiveMajor = 0;
++    uint32 ObjectiveStandard = 0;
++    uint32 ObjectiveAssist = 0;
++    uint32 RealOpponentCount = 0;
++    uint32 BotOpponentCount = 0;
++    uint32 UniqueOpponentAccounts = 0;
++    bool SameAccountOpponent = false;
++    bool SameIpOpponent = false;
++    bool Inactive = false;
++    bool Deserter = false;
++    std::string OpponentRosterKey;
++    std::string EventToken;
++};
++
++class PvPMeritTracker
++{
++public:
++    static PvPMeritTracker& Instance();
++
++    PvPMeritTracker(PvPMeritTracker const&) = delete;
++    PvPMeritTracker& operator=(PvPMeritTracker const&) = delete;
++
++    void OnBattlegroundStart(Battleground* bg);
++    void OnBattlegroundAddPlayer(Battleground* bg, Player* player);
++    void OnBattlegroundRemovePlayer(Battleground* bg, Player* player);
++    void OnBattlegroundScoreUpdate(Battleground* bg, Player* player, uint32 type, uint32 value);
++    void OnBattlegroundEndReward(Battleground* bg, Player* player, TeamId winnerTeam);
++    void OnBattlegroundDestroy(Battleground* bg);
++    void OnBattlegroundDesertion(Player* player, BattlegroundDesertionType type);
++
++    void OnPvPHonor(Player* player, uint32 finalHonor, uint8 honorSource);
++    void OnPvPDamage(Unit* attacker, Unit* receiver, uint32 damage);
++    void OnPvPHeal(Unit* healer, Unit* receiver, uint32 gain);
++
++    void OnBattlefieldWarStart(Battlefield* battlefield);
++    void OnBattlefieldPlayerJoinWar(Battlefield* battlefield, Player* player);
++    void OnBattlefieldPlayerLeaveWar(Battlefield* battlefield, Player* player);
++    void OnBattlefieldWarEnd(Battlefield* battlefield, bool endedByTimer);
++    void OnBattlefieldPlayerKill(Battlefield* battlefield, Player* killer, Player* victim);
++    void OnBattlefieldObjective(Battlefield* battlefield, Player* player, uint32 objectiveId, uint8 objectiveTier);
++    void OnBattlefieldBuildingDamaged(GameObject* gameObject, Player* player);
++    void OnBattlefieldBuildingDestroyed(GameObject* gameObject, Player* player);
++
++    void OnDuelStart(Player* player1, Player* player2);
++    void OnDuelEnd(Player* winner, Player* loser, DuelCompleteType type);
++
++private:
++    PvPMeritTracker();
++    ~PvPMeritTracker();
++
++    struct Impl;
++    std::unique_ptr<Impl> _impl;
++};
++
++#define sPvPMeritTracker PvPMeritTracker::Instance()
++
++#endif // ALE_PVP_MERIT_TRACKER_H

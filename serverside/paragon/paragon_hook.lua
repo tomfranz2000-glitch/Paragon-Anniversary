@@ -52,6 +52,13 @@ local EXPERIENCE_SOURCE = {
     GATHER = 6,
     PROCESS = 7,
     COLLECTIBLE = 8,
+    PVP_HONOR = 9,
+    PVP_BATTLEGROUND = 10,
+    PVP_ARENA = 11,
+    PVP_OBJECTIVE = 12,
+    PVP_DUEL = 13,
+    PVP_BREADTH = 14,
+    PVP_WINTERGRASP = 15,
 }
 
 Hook.ExperienceSource = EXPERIENCE_SOURCE

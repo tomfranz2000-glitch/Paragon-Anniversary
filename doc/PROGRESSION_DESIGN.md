@@ -97,6 +97,21 @@ payloads from inflating awards. These repeatable awards cross the normal
 skill-mismatched actions grant nothing. Repeatable profession actions are not
 banked below level 80; they simply begin awarding Paragon XP at eligibility.
 
+### PvP Merit — activity, objectives, and breadth
+
+PvP pays repeatable base XP for final honor, credited active battleground and
+Wintergrasp minutes, match outcomes, capped objectives, rated arenas,
+skirmishes, OutdoorPvP objectives, and the first three distinct duel opponents
+per reset-day. A separate weekly award promotes breadth across distinct
+battleground maps, rated brackets, Wintergrasp, and legacy OutdoorPvP zones.
+
+Participation gates, victim/roster diminishing returns, account-wide reset
+caps, same-account rejection, and durable bridge tokens make cooperative PvP
+valuable without turning arranged replays into the best farm. Real recipients
+receive full values against playerbot opponents; playerbots themselves never
+receive account-wide Paragon XP. All values and the exact rules are documented
+in [`PVP_MERIT.md`](PVP_MERIT.md).
+
 ### Future one-time sources (deferred, not in scope)
 
 Bestiary first-kills per creature entry · first clear per dungeon/raid boss ·
@@ -211,7 +226,9 @@ Related config changes:
 The progression logic remains under `paragon/modules/`. Exact creature values
 and reward attribution use the ALE additions carried by
 `patches/05-mod-ale.patch`; profession action attribution additionally requires
-`patches/02-core-profession-xp.patch` and `patches/07-mod-ale-profession-xp.patch`:
+`patches/02-core-profession-xp.patch` and `patches/07-mod-ale-profession-xp.patch`.
+PvP Merit additionally requires `patches/08-core-pvp-merit.patch` and
+`patches/09-mod-ale-pvp-merit.patch`:
 
 | Piece | Mechanism |
 |---|---|
@@ -222,6 +239,7 @@ and reward attribution use the ALE additions carried by
 | Party credit | ALE event 75, forwarded from `OnPlayerRewardKillRewarder`, once per core-credited recipient |
 | Profession actions | ALE event 76; generated `paragon_profession_data.Resolve()` valuation; per-session action-token dedupe |
 | Profession mastery | ALE event 62; `paragon_profession_progress` high-water/pending ledger; flat award path |
+| PvP Merit | ALE events 77-81; `paragon_pvp_reward_claim` account ledger; `paragon_pvp_xp.lua` policy |
 | Curve | recompute next-level cost on `OnParagonLevelChanged` via `SetExperienceForNextLevel` |
 
 ## Open decisions

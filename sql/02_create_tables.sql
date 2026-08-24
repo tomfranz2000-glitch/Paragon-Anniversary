@@ -172,6 +172,45 @@ CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_codex_alloc` (
     PRIMARY KEY (`guid`, `node_id`)
 ) ENGINE=InnoDB;
 
+-- --------------------------------------------------------------------------
+-- Account-wide PvP reward settlement
+-- --------------------------------------------------------------------------
+
+-- One row is both the durable idempotency claim and the audit/history record
+-- for one independently payable component of a bridge settlement. Pending
+-- rows are a write-ahead queue; paid rows supply honor-pair and arena-roster
+-- diminishing returns, reset-window caps, and weekly breadth uniqueness.
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_pvp_reward_claim` (
+    `account_id` INT UNSIGNED NOT NULL,
+    `recipient_guid` INT UNSIGNED NOT NULL,
+    `event_token` VARCHAR(191) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    `component` VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    `source_type` TINYINT UNSIGNED NOT NULL,
+    `source_entry` INT UNSIGNED NOT NULL DEFAULT 0,
+    `base_xp` BIGINT UNSIGNED NOT NULL,
+    `awarded_xp` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    `counterpart_account_id` INT UNSIGNED NOT NULL DEFAULT 0,
+    `opponent_key` VARCHAR(191) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
+    `period_key` VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
+    `entitlement_key` VARCHAR(191) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    `same_ip_risk` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    `created_at` DATETIME NOT NULL,
+    `paid_at` DATETIME NULL,
+
+    PRIMARY KEY (`account_id`, `event_token`, `component`),
+    UNIQUE KEY `uq_paragon_pvp_entitlement` (`account_id`, `entitlement_key`),
+    KEY `ix_paragon_pvp_honor_pair`
+        (`account_id`, `component`, `counterpart_account_id`, `paid_at`),
+    KEY `ix_paragon_pvp_arena_roster`
+        (`account_id`, `opponent_key`, `created_at`),
+    KEY `ix_paragon_pvp_period`
+        (`account_id`, `component`, `period_key`),
+    KEY `ix_paragon_pvp_pending_owner`
+        (`account_id`, `recipient_guid`, `paid_at`, `created_at`),
+    KEY `ix_paragon_pvp_cleanup_paid` (`paid_at`),
+    KEY `ix_paragon_pvp_cleanup_pending` (`created_at`)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_custom_glyph` (
     `guid` INT UNSIGNED NOT NULL,
     `item` INT UNSIGNED NOT NULL,

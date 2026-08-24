@@ -100,6 +100,7 @@ The **Paragon System** introduces an endgame progression mechanic for AzerothCor
 - `modules/paragon_anniversary.lua` - Experience & level-up mechanics
 - `modules/paragon_profession_xp.lua` - Profession actions, skill high-water marks, and pre-80 banks
 - `modules/paragon_profession_data.lua` - Generated craft/gather/process valuations
+- `modules/paragon_pvp_xp.lua` - Durable honor, battleground, arena, outdoor, and duel rewards
 - Extensible via Mediator pattern for custom features
 
 </td>
@@ -123,6 +124,9 @@ The **Paragon System** introduces an endgame progression mechanic for AzerothCor
 
 **Profession Progress:**
 - `paragon_profession_progress` - Durable per-scope skill high-water marks and pending XP
+
+**PvP Merit:**
+- `paragon_pvp_reward_claim` - Account-wide idempotency, DR, cap, breadth, and pending-payout ledger
 
 </td>
 </tr>
@@ -359,6 +363,7 @@ historical dump; never load it during installation or upgrade.
 - [HOOKS.md](doc/HOOKS.md) - Complete Mediator event system
 - [MODULES.md](doc/MODULES.md) - Creating custom modules
 - [LIBRARIES.md](doc/LIBRARIES.md) - Library documentation
+- [PVP_MERIT.md](doc/PVP_MERIT.md) - PvP economy, bridge, eligibility, DR, caps, and durability
 
 ---
 
@@ -372,6 +377,7 @@ Complete documentation is available in the `doc/` directory:
 | **[HOOKS.md](doc/HOOKS.md)** | Mediator event system reference |
 | **[MODULES.md](doc/MODULES.md)** | Creating custom modules |
 | **[LIBRARIES.md](doc/LIBRARIES.md)** | Classic, CSMH, and Mediator libraries |
+| **[PVP_MERIT.md](doc/PVP_MERIT.md)** | PvP Merit values and integration contract |
 
 All code includes **LuaDoc** comments for inline documentation.
 
@@ -411,6 +417,7 @@ paragon/
 │   ├── paragon_anniversary.lua     # Experience & level-up mechanics
 │   ├── paragon_profession_xp.lua   # Profession actions and mastery ledger
 │   ├── paragon_profession_data.lua # Generated profession valuations
+│   ├── paragon_pvp_xp.lua          # Durable PvP Merit rewards and ledgers
 │   └── README.md                   # Module documentation
 ├── paragon_constant.lua            # Constants, SQL queries, stat enums
 ├── paragon_repository.lua          # Database access layer (Singleton)
@@ -423,7 +430,8 @@ doc/
 ├── INSTALL.md                      # Installation guide
 ├── HOOKS.md                        # Complete hook documentation
 ├── MODULES.md                      # Module development guide
-└── LIBRARIES.md                    # Libraries documentation (Classic, CSMH, Mediator)
+├── LIBRARIES.md                    # Libraries documentation (Classic, CSMH, Mediator)
+└── PVP_MERIT.md                    # PvP economy and bridge contract
 
 sql/
 ├── install.sql                     # Canonical fresh-install/upgrade entrypoint

@@ -117,6 +117,7 @@ REQUIRED_ALE_TABLES = (
     "paragon_config_statistic",
     "paragon_custom_glyph",
     "paragon_profession_progress",
+    "paragon_pvp_reward_claim",
     "paragon_racial_pick",
     "paragon_rare_kills",
     "paragon_rewarded_appearance",
@@ -1004,7 +1005,7 @@ class Pipeline:
 
         sql = (
             "SELECT "
-            "(SELECT COUNT(*) >= 22 FROM acore_ale.paragon_config),"
+            "(SELECT COUNT(*) >= 83 FROM acore_ale.paragon_config),"
             "(SELECT value = '2000' FROM acore_ale.paragon_config "
             " WHERE field='UNIVERSAL_SKILL_EXPERIENCE'),"
             "(SELECT value = '2000' FROM acore_ale.paragon_config "
@@ -1023,6 +1024,22 @@ class Pipeline:
             "(SELECT COUNT(*) = 1 FROM information_schema.tables "
             " WHERE table_schema='acore_ale' "
             " AND table_name='paragon_profession_progress'),"
+            "(SELECT COUNT(*) = 1 FROM information_schema.tables "
+            " WHERE table_schema='acore_ale' "
+            " AND table_name='paragon_pvp_reward_claim' "
+            " AND engine='InnoDB'),"
+            "(SELECT COUNT(*) = 1 FROM information_schema.columns "
+            " WHERE table_schema='acore_ale' "
+            " AND table_name='paragon_pvp_reward_claim' "
+            " AND column_name='recipient_guid' "
+            " AND data_type='int' AND column_type LIKE '%unsigned%' "
+            " AND is_nullable='NO'),"
+            "(SELECT value = '8' FROM acore_ale.paragon_config "
+            " WHERE field='PARAGON_PVP_HONOR_XP_PER_POINT'),"
+            "(SELECT value = '4000' FROM acore_ale.paragon_config "
+            " WHERE field='PARAGON_PVP_BG_XP_PER_ACTIVE_MINUTE'),"
+            "(SELECT value = '20000' FROM acore_ale.paragon_config "
+            " WHERE field='PARAGON_PVP_WEEKLY_BREADTH_XP'),"
             "(SELECT COUNT(*) >= 4 FROM acore_ale.paragon_config_category "
             " WHERE id IN (1,2,3,4)),"
             "(SELECT COUNT(*) = 17 FROM acore_ale.paragon_config_statistic "
@@ -1051,11 +1068,11 @@ class Pipeline:
             " AND character_maximum_length=32);")
         output = self._mysql(sql, capture=True).strip().splitlines()
         values = output[-1].split("\t") if output else []
-        if values != ["1"] * 13:
+        if values != ["1"] * 18:
             raise InstallError(
                 "database verification failed (config, direct one-time XP, "
                 "collection/quest rows, content, achievements, profession "
-                "progress, categories, statistics, or type_value schema is "
+                "progress, PvP Merit, categories, statistics, or type_value schema is "
                 "incomplete): %s" % (values or "no output"))
 
     def apply(self) -> None:
