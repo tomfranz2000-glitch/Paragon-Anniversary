@@ -133,18 +133,26 @@ local function UpdatePlayerStatistics(player, paragon, apply)
             goto continue
         end
 
+        -- Preserve forward compatibility with operator-owned configuration and
+        -- stale rows from the historical example dump. Unsupported symbolic
+        -- keys must not turn into nil ALE calls during login/reconciliation.
+        local constant_stat_value = constant_stat_type[stat_data.value]
+        if constant_stat_value == nil then
+            goto continue
+        end
+
         -- Apply bonus based on statistic type
         if stat_data.type == "UNIT_MODS" then
-            player:HandleStatFlatModifier(constant_stat_type[stat_data.value], stat_data.application, stat_value, apply)
+            player:HandleStatFlatModifier(constant_stat_value, stat_data.application, stat_value, apply)
         elseif stat_data.type == "COMBAT_RATING" then
-            player:ApplyRatingMod(constant_stat_type[stat_data.value], stat_value, apply)
+            player:ApplyRatingMod(constant_stat_value, stat_value, apply)
         elseif stat_data.type == "AURA" then
             if apply then
                 for _ = 1, stat_value do
-                    player:AddAura(constant_stat_type[stat_data.value], player)
+                    player:AddAura(constant_stat_value, player)
                 end
             else
-                player:RemoveAura(constant_stat_type[stat_data.value])
+                player:RemoveAura(constant_stat_value)
             end
         end
 

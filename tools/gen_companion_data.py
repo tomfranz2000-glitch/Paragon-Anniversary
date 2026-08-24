@@ -7,13 +7,13 @@ so the count always matches what the collection module syncs account-wide.
 Names resolved from Spell.dbc for the comments. Used by
 paragon_collection_xp.lua (milestone 325).
 """
+import argparse
 import os
 import sys
 
 import gen_glyph_data as g
 
-OUT = os.path.join(g.HERE, "..", "Server", "azerothcore-test", "azerothcore-wotlk",
-                   "env", "dist", "etc", "lua_scripts", "paragon", "modules",
+OUT = os.path.join(g.REPO_ROOT, "serverside", "paragon", "modules",
                    "paragon_companion_data.lua")
 SKILL_COMPANIONS = 778
 # SkillLineAbility.dbc: ID(0), skillLine(1), spell(2), ...
@@ -21,7 +21,13 @@ SLA_SKILL_COL = 1
 SLA_SPELL_COL = 2
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true",
+                        help="fail instead of rewriting a stale artifact")
+    parser.add_argument("--output", default=OUT,
+                        help="generated Lua path (default: %(default)s)")
+    args = parser.parse_args(argv)
     sla, _, _ = g.read_wdbc_ints(g.extract_dbc("SkillLineAbility.dbc"))
     companion_spells = sorted({rec[SLA_SPELL_COL] for rec in sla
                                if rec[SLA_SKILL_COL] == SKILL_COMPANIONS})
@@ -50,9 +56,9 @@ def main():
                      % (spell_id, names.get(spell_id, "?").replace("\n", " ")))
     lines.append("}")
 
-    with open(OUT, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
-    print(f"OK: {len(companion_spells)} companion spells -> {os.path.normpath(OUT)}")
+    g.write_generated(args.output, "\n".join(lines) + "\n", args.check)
+    verb = "verified" if args.check else "wrote"
+    print(f"OK: {verb} {len(companion_spells)} companion spells -> {os.path.normpath(args.output)}")
 
 
 if __name__ == "__main__":

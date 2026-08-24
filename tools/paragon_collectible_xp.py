@@ -59,12 +59,10 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 CLIENT_DATA = os.path.abspath(os.environ.get(
     "PARAGON_CLIENT_DATA", os.path.join(HERE, "..", "Client", "Data")))
-CACHE = os.path.join(HERE, "cache")
+CACHE = os.path.abspath(os.environ.get(
+    "PARAGON_DBC_CACHE", os.path.join(HERE, "cache")))
 OUT_CSV = os.path.join(HERE, "generated", "collectible_xp_review.csv")
-DB_CONTAINER = "ac-database"
-DB_PASS = os.environ.get("ACORE_DB_PASS", "")
-if not DB_PASS:
-    raise SystemExit("set ACORE_DB_PASS to your world DB password")
+DB_CONTAINER = os.environ.get("ACORE_DB_CONTAINER", "ac-database")
 
 BASE_MOUNT, BASE_COMPANION, BASE_ITEM = 80000, 30000, 1000
 # Formula ceiling (mounts 960k / companions 360k). Deliberately BELOW the
@@ -109,9 +107,33 @@ ITEM_OVERRIDES = {
 BAD_NAME = ("TEST", "Deprecated", "DEPRECATED", "[PH]", "(old)", "OLD")
 
 
+def assert_exact_rows(label, expected, actual):
+    """Fail with key-level diagnostics unless two generated tables match."""
+    expected = [tuple(str(value) for value in row) for row in expected]
+    actual = [tuple(str(value) for value in row) for row in actual]
+    expected.sort()
+    actual.sort()
+    if expected == actual:
+        return
+    expected_by_key = {row[0]: row[1:] for row in expected}
+    actual_by_key = {row[0]: row[1:] for row in actual}
+    missing = sorted(set(expected_by_key) - set(actual_by_key))
+    unexpected = sorted(set(actual_by_key) - set(expected_by_key))
+    changed = sorted(key for key in set(expected_by_key) & set(actual_by_key)
+                     if expected_by_key[key] != actual_by_key[key])
+    raise SystemExit(
+        "%s differs: expected %d rows, found %d; missing=%s; "
+        "unexpected=%s; changed=%s" %
+        (label, len(expected), len(actual), missing[:5], unexpected[:5],
+         changed[:5]))
+
+
 def mysql(sql, db="acore_world"):
     r = subprocess.run(
-        ["docker", "exec", "-i", DB_CONTAINER, "mysql", "-uroot", "-p" + DB_PASS, "-N", db],
+        ["docker", "exec", "-i", DB_CONTAINER, "sh", "-lc",
+         'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" '
+         '--default-character-set=utf8mb4 --raw --batch '
+         '--skip-column-names "$1"', "paragon-mysql", db],
         input=sql.encode(), capture_output=True)
     if r.returncode != 0:
         sys.exit("mysql failed: " + r.stderr.decode()[:800])
@@ -238,9 +260,13 @@ def load_sources(interest):
 
     # ---- direct + referenced loot ------------------------------------------
     def walk_loot(table, stats, meta):
-        rows = mysql("SELECT Entry, Item, Reference, Chance, GroupId FROM %s "
-                     "WHERE Reference > 0 OR Item IN (SELECT entry FROM "
-                     "acore_world.tmp_interest);" % table)
+        # Fetch once and filter in Python.  A previous implementation created
+        # a persistent ``tmp_interest`` helper table in acore_world, which
+        # made even --check mutate production state and could collide with a
+        # concurrent run.  These loot tables are small enough for a read-only
+        # scan, while ``ref_rows`` and ``add`` discard unrelated rows here.
+        rows = mysql(
+            "SELECT Entry, Item, Reference, Chance, GroupId FROM %s;" % table)
         for entry, item, ref, chance, group in rows:
             entry, item, ref = int(entry), int(item), int(ref)
             eff = share(stats, entry, int(group), float(chance))
@@ -252,14 +278,6 @@ def load_sources(interest):
             else:
                 add(item, kind="drop", chance=eff, rank=rank, level=level, heroic=hero)
 
-    # temp table with the interest ids keeps the loot queries sane
-    stmts = ["DROP TABLE IF EXISTS tmp_interest;",
-             "CREATE TABLE tmp_interest (entry INT PRIMARY KEY);"]
-    for ch in chunks(sorted(interest), 2000):
-        stmts.append("INSERT INTO tmp_interest VALUES %s;"
-                     % ",".join("(%d)" % v for v in ch))
-    mysql("\n".join(stmts))
-
     walk_loot("creature_loot_template", cl_stats,
               lambda e: creatures.get(e, (0, 0, False)))
     walk_loot("gameobject_loot_template", go_stats, lambda e: (0, 0, False))
@@ -268,13 +286,11 @@ def load_sources(interest):
     for table in ("item_loot_template", "fishing_loot_template"):
         st = group_stats(table)
         for entry, item, chance, group in mysql(
-                "SELECT Entry, Item, Chance, GroupId FROM %s WHERE Item IN "
-                "(SELECT entry FROM tmp_interest);" % table):
+                "SELECT Entry, Item, Chance, GroupId FROM %s;" % table):
             add(int(item), kind="drop",
                 chance=share(st, int(entry), int(group), float(chance)),
                 rank=0, level=0, heroic=False)
 
-    mysql("DROP TABLE IF EXISTS tmp_interest;")
     return paths
 
 
@@ -307,8 +323,12 @@ def path_mult(p, rep_mult):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--seed", action="store_true",
-                    help="create + seed the one-time-reward mirror tables")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--seed", action="store_true",
+                      help="create + seed the one-time-reward mirror tables")
+    mode.add_argument(
+        "--check", action="store_true",
+        help="read-only exact comparison with regenerated collectible XP rows")
     args = ap.parse_args()
 
     mount_spells, companion_spells = sla_spell_sets()
@@ -418,7 +438,32 @@ def main():
             item_rows.append((iid, name, xp))
             review.append(("appearance", iid, name, xp, " ".join(why)))
 
-    # ---- write DB ----------------------------------------------------------
+    # ---- write DB / exact read-only check ----------------------------------
+    expected_spell_rows = [
+        (sid, kind, (name or "")[:120], xp)
+        for sid, kind, name, xp in spell_rows
+    ]
+    expected_item_rows = [
+        (iid, (name or "")[:120], xp) for iid, name, xp in item_rows
+    ]
+    if args.check:
+        actual_spell_rows = mysql(
+            "SELECT spell_id, kind, name, xp "
+            "FROM paragon_collectible_spell_xp ORDER BY spell_id;",
+            db="acore_ale")
+        actual_item_rows = mysql(
+            "SELECT item_id, name, xp "
+            "FROM paragon_collectible_item_xp ORDER BY item_id;",
+            db="acore_ale")
+        assert_exact_rows("paragon_collectible_spell_xp",
+                          expected_spell_rows, actual_spell_rows)
+        assert_exact_rows("paragon_collectible_item_xp",
+                          expected_item_rows, actual_item_rows)
+        print("OK: regenerated collectible XP exactly matches the database "
+              "(%d spells, %d items)" %
+              (len(expected_spell_rows), len(expected_item_rows)))
+        return
+
     esc = lambda s: (s or "").replace("\\", "\\\\").replace("'", "''")
     stmts = [
         "CREATE TABLE IF NOT EXISTS paragon_collectible_spell_xp ("
@@ -426,15 +471,19 @@ def main():
         "name VARCHAR(120) NOT NULL, xp INT NOT NULL);",
         "CREATE TABLE IF NOT EXISTS paragon_collectible_item_xp ("
         "item_id INT PRIMARY KEY, name VARCHAR(120) NOT NULL, xp INT NOT NULL);",
+        "START TRANSACTION;",
         "DELETE FROM paragon_collectible_spell_xp;",
         "DELETE FROM paragon_collectible_item_xp;",
     ]
     for ch in chunks(spell_rows, 500):
         stmts.append("INSERT INTO paragon_collectible_spell_xp VALUES %s;" % ",".join(
-            "(%d,'%s','%s',%d)" % (s, k, esc(n)[:120], x) for s, k, n, x in ch))
+            "(%d,'%s','%s',%d)" % (s, k, esc((n or "")[:120]), x)
+            for s, k, n, x in ch))
     for ch in chunks(item_rows, 500):
         stmts.append("INSERT INTO paragon_collectible_item_xp VALUES %s;" % ",".join(
-            "(%d,'%s',%d)" % (i, esc(n)[:120], x) for i, n, x in ch))
+            "(%d,'%s',%d)" % (i, esc((n or "")[:120]), x)
+            for i, n, x in ch))
+    stmts.append("COMMIT;")
     mysql("\n".join(stmts), db="acore_ale")
     print("wrote %d spell rows, %d above-baseline item rows"
           % (len(spell_rows), len(item_rows)))
@@ -447,11 +496,13 @@ def main():
             "CREATE TABLE IF NOT EXISTS paragon_rewarded_appearance ("
             "account_id INT UNSIGNED NOT NULL, item_id INT UNSIGNED NOT NULL, "
             "PRIMARY KEY (account_id, item_id));",
+            "START TRANSACTION;",
             "INSERT IGNORE INTO paragon_rewarded_collectible_spell "
             "SELECT acs.account_id, acs.spell_id FROM acore_characters.account_collection_spell acs "
             "JOIN paragon_collectible_spell_xp x ON x.spell_id = acs.spell_id;",
             "INSERT IGNORE INTO paragon_rewarded_appearance "
             "SELECT account_id, item_template_id FROM acore_characters.custom_unlocked_appearances;",
+            "COMMIT;",
         ]), db="acore_ale")
         for t in ("paragon_rewarded_collectible_spell", "paragon_rewarded_appearance"):
             n = mysql("SELECT COUNT(*) FROM %s;" % t, db="acore_ale")[0][0]

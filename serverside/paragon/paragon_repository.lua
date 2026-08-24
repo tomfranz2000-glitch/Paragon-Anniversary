@@ -62,7 +62,17 @@ function Repository:VerifyDatabaseSchema()
         "character_paragon",
         "account_paragon",
         "character_paragon_stats",
-        "paragon_profession_progress"
+        "paragon_profession_progress",
+        "paragon_collectible_spell_xp",
+        "paragon_collectible_item_xp",
+        "paragon_rewarded_collectible_spell",
+        "paragon_rewarded_appearance",
+        "paragon_banked_experience",
+        "paragon_codex_alloc",
+        "paragon_custom_glyph",
+        "paragon_racial_pick",
+        "paragon_rare_kills",
+        "paragon_solo_clears"
     }
 
     local missing_tables = {}
@@ -77,10 +87,9 @@ function Repository:VerifyDatabaseSchema()
         print("The database '" .. Constants.DB_NAME .. "' does not exist.")
         print("")
         print("SOLUTION:")
-        print("  1. Navigate to this repository's sql/ directory")
-        print("  2. Edit and execute 01_create_database.sql")
-        print("  3. Execute 02, 03, 04, and 05 in order")
-        print("  4. Reload Eluna scripts: .reload eluna")
+        print("  1. Stop the worldserver")
+        print("  2. From the Paragon repository root, run sql/install.sql")
+        print("  3. Restart the worldserver")
         print("")
         print("See sql/README.md or doc/INSTALL.md for detailed instructions.")
         print("=================================================================")
@@ -111,9 +120,9 @@ function Repository:VerifyDatabaseSchema()
         end
         print("")
         print("SOLUTION:")
-        print("  1. Navigate to this repository's sql/ directory")
-        print("  2. Execute 01, 02, 03, 04, and 05 in order")
-        print("  3. Reload Eluna scripts: .reload eluna")
+        print("  1. Stop the worldserver")
+        print("  2. From the Paragon repository root, run sql/install.sql")
+        print("  3. Restart the worldserver")
         print("")
         print("See sql/README.md or doc/INSTALL.md for detailed instructions.")
         print("=================================================================")

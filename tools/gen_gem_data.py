@@ -14,18 +14,24 @@ Layout is validated against known rows before writing: Bold Cardinal Ruby
 (item 40111, prop 1287) must be red, Chaotic Skyflare Diamond (item 41285,
 prop 1381) must be meta, limit category 2 (Jeweler's Gems) must cap at 3.
 """
+import argparse
 import os
 import sys
 
 import gen_glyph_data as g
 
-OUT = os.path.join(g.HERE, "..", "Server", "azerothcore-test", "azerothcore-wotlk",
-                   "env", "dist", "etc", "lua_scripts", "paragon", "modules",
+OUT = os.path.join(g.REPO_ROOT, "serverside", "paragon", "modules",
                    "paragon_gem_data.lua")
 KNOWN = {1287: 2, 1381: 1}  # prop id -> expected color mask
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true",
+                        help="fail instead of rewriting a stale artifact")
+    parser.add_argument("--output", default=OUT,
+                        help="generated Lua path (default: %(default)s)")
+    args = parser.parse_args(argv)
     records, field_count, _ = g.read_wdbc_ints(g.extract_dbc("GemProperties.dbc"))
     if field_count != 5:
         sys.exit(f"GemProperties.dbc has {field_count} fields, expected 5 — layout changed?")
@@ -173,9 +179,9 @@ def main():
     lines.append("}")
     lines.append('print("[Paragon] Rework: gem data loaded (" .. tostring(%d) .. " properties)")' % len(rows))
 
-    with open(OUT, "w", encoding="utf-8", newline="\n") as f:
-        f.write("\n".join(lines) + "\n")
-    print(f"OK: {len(records)} gem properties -> {os.path.normpath(OUT)}")
+    g.write_generated(args.output, "\n".join(lines) + "\n", args.check)
+    verb = "verified" if args.check else "wrote"
+    print(f"OK: {verb} {len(records)} gem properties -> {os.path.normpath(args.output)}")
 
 
 if __name__ == "__main__":

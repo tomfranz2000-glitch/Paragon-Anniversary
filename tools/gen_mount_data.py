@@ -6,18 +6,24 @@ SPELL_AURA_MOUNTED (78). Players can only ever KNOW the learnable ones, so
 checking HasSpell against the full set counts collected mounts without any
 NPC-mount filtering. Used by paragon_mount_xp.lua (milestone 300).
 """
+import argparse
 import os
 import sys
 
 import gen_glyph_data as g
 
-OUT = os.path.join(g.HERE, "..", "Server", "azerothcore-test", "azerothcore-wotlk",
-                   "env", "dist", "etc", "lua_scripts", "paragon", "modules",
+OUT = os.path.join(g.REPO_ROOT, "serverside", "paragon", "modules",
                    "paragon_mount_data.lua")
 SPELL_AURA_MOUNTED = 78
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true",
+                        help="fail instead of rewriting a stale artifact")
+    parser.add_argument("--output", default=OUT,
+                        help="generated Lua path (default: %(default)s)")
+    args = parser.parse_args(argv)
     cols = g.spell_column_indices()
     aura_idx = [cols["EffectAura_%d" % i] for i in (1, 2, 3)]
     name_col = cols["Name_Lang_enUS"]
@@ -45,9 +51,9 @@ def main():
         lines.append("    [%d] = true, -- %s" % (spell_id, name.replace("\n", " ")))
     lines.append("}")
 
-    with open(OUT, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
-    print(f"OK: {len(mounts)} mount spells -> {os.path.normpath(OUT)}")
+    g.write_generated(args.output, "\n".join(lines) + "\n", args.check)
+    verb = "verified" if args.check else "wrote"
+    print(f"OK: {verb} {len(mounts)} mount spells -> {os.path.normpath(args.output)}")
 
 
 if __name__ == "__main__":

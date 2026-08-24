@@ -169,13 +169,31 @@ and the server's transmog configuration defaults. Do not substitute upstream
 ### Required order
 
 1. 🧩 Install the pinned modules and apply every applicable patch.
-2. 🗄️ Import `sql/01_create_database.sql` through `sql/05_apply_anniversary_config.sql`.
-3. 🛠️ Generate and `--check` profession XP data against the populated world database and active DBCs.
-4. 📁 Copy the regenerated `serverside/paragon` package and mod-ale extensions into `ALE.ScriptPath`.
-5. ⚙️ Run `gen_class_talents.py --emit`, `gen_class_trainers.py --emit`, then `paragon_client_patch.py --apply`.
-6. 🎁 Populate collection and quest XP with the two dedicated tools.
-7. 🎮 Install the addon, build `patch-W.MPQ`, and verify the generated `patch-X` archives.
-8. 🔄 Restart the worldserver and fully restart the client.
+2. 🏗️ Build the core and complete AzerothCore's normal database import.
+3. 📦 Install the pinned Python dependencies with `python -m pip install -r requirements.txt`.
+4. ⏹️ Stop the worldserver, then run the complete, rerunnable installer from
+   this repository's root. Database credentials are read only inside the
+   `ac-database` container:
+
+   ```bash
+   python tools/install.py --apply \
+       --core-root /path/to/azerothcore \
+       --client-root /path/to/WowWotlk
+   ```
+
+5. ✅ Run the same command with `--check`, restart the worldserver, and fully
+   restart the client.
+
+The installer applies `sql/install.sql`, runs every required data generator,
+deploys server Lua/ALE extensions and the addon, builds all client archives,
+seeds existing collections safely, and verifies the result. Use `--dry-run` to
+print its exact ordered plan without reading secrets or changing external state.
+`--check` regenerates all three MPQs in private temporary storage and exactly
+compares the generator-owned database rows without persistent database writes.
+
+To validate the repository without deploying, install `requirements.txt` and
+run `python -m unittest discover -s tools -p "test_*.py"`. The complete
+installer runs this same suite before it changes external state.
 
 > [!IMPORTANT]
 > Clone `https://github.com/azerothcore/mod-eluna.git` with the explicit target
@@ -263,13 +281,14 @@ remains durable and can be paid after the system is enabled again.
 
 **Stat Configuration Fields:**
 - `type`: `AURA`, `COMBAT_RATING`, or `UNIT_MODS`
-- `type_value`: The specific stat ID from Constants
+- `type_value`: The symbolic key from `paragon_constant.lua`
 - `factor`: Multiplier for each point invested
 - `limit`: Maximum points that can be invested (max 255)
 - `application`: How the stat bonus is applied
 
-**Example Data Available:**
-A complete example configuration with 3 categories and 25+ statistics is provided in `sql/11-13-2026_Example_Data.sql`. Use this as a reference or load it directly to get started quickly.
+The canonical database bootstrap supplies four categories and all 17
+runtime-supported statistics. `sql/11-13-2026_Example_Data.sql` is a destructive
+historical dump; never load it during installation or upgrade.
 
 ---
 
@@ -363,7 +382,7 @@ All code includes **LuaDoc** comments for inline documentation.
 
 | Component | Version | Status |
 |-----------|---------|--------|
-| 🔧 **ALE** | Latest | ✅ **Required** |
+| 🔧 **ALE** | [`9e5b8c66efeb383871ec58b925e47094c92cc8d5`](patches/PINS.md) | ✅ **Required** |
 | 📚 **Classic** | Any | ✅ **Required** |
 | 🔌 **CSMH** | Any | ✅ **Required** |
 
@@ -399,12 +418,13 @@ doc/
 └── LIBRARIES.md                    # Libraries documentation (Classic, CSMH, Mediator)
 
 sql/
+├── install.sql                     # Canonical fresh-install/upgrade entrypoint
 ├── 01_create_database.sql          # Database creation
 ├── 02_create_tables.sql            # Complete table schema
 ├── 03_create_triggers.sql          # Validation triggers
 ├── 04_insert_default_config.sql    # Default configuration
 ├── 05_apply_anniversary_config.sql # Anniversary realm configuration
-├── 11-13-2026_Example_Data.sql     # Example categories & statistics
+├── 11-13-2026_Example_Data.sql     # Destructive historical reference only
 └── README.md                       # SQL installation guide
 ```
 

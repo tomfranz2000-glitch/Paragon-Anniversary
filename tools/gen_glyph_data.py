@@ -10,28 +10,30 @@ Column indices for Spell.dbc are taken from the spell_dbc SQL table schema, whos
 column order matches the DBC field order positionally (same trick as
 paragon_client_patch.py). Output is a server-side Lua data module.
 """
+import argparse
 import os
 import struct
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(HERE)
 CLIENT_DATA = os.path.abspath(os.environ.get(
-    "PARAGON_CLIENT_DATA", os.path.join(HERE, "..", "Client", "Data")))
-CACHE = os.path.join(HERE, "cache")
-OUT_LUA = os.path.join(
-    HERE, "..", "Server", "azerothcore-test", "azerothcore-wotlk",
-    "env", "dist", "etc", "lua_scripts", "paragon", "modules",
-    "paragon_glyph_data.lua")
-DB_CONTAINER = "ac-database"
-DB_PASS = os.environ.get("ACORE_DB_PASS", "")
-if not DB_PASS:
-    raise SystemExit("set ACORE_DB_PASS to your world DB password")
+    "PARAGON_CLIENT_DATA", os.path.join(REPO_ROOT, "Client", "Data")))
+CACHE = os.path.abspath(os.environ.get(
+    "PARAGON_DBC_CACHE", os.path.join(HERE, "cache")))
+OUT_LUA = os.path.join(REPO_ROOT, "serverside", "paragon", "modules",
+                       "paragon_glyph_data.lua")
+DB_CONTAINER = os.environ.get("ACORE_DB_CONTAINER", "ac-database")
 
 
 def mysql(sql, db="acore_world"):
     r = subprocess.run(
-        ["docker", "exec", "-i", DB_CONTAINER, "mysql", "-uroot", "-p" + DB_PASS, "-N", db],
+        ["docker", "exec", "-i", DB_CONTAINER, "sh", "-lc",
+         'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" '
+         '--default-character-set=utf8mb4 --raw --batch '
+         '--skip-column-names "$1"', "paragon-mysql", db],
         input=sql.encode(), capture_output=True)
     if r.returncode != 0:
         sys.exit("mysql failed: " + r.stderr.decode()[:500])
@@ -91,7 +93,41 @@ def spell_column_indices():
     return {name: int(pos) - 1 for name, pos in rows}
 
 
-def main():
+def write_generated(path, content, check=False):
+    """Write generated text or fail when the tracked artifact is stale."""
+    if check:
+        try:
+            with open(path, encoding="utf-8") as handle:
+                current = handle.read()
+        except FileNotFoundError:
+            sys.exit("generated artifact is missing: %s" % path)
+        if current != content:
+            sys.exit("generated artifact is stale: %s" % path)
+        return
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                "w", encoding="utf-8", newline="\n", dir=directory,
+                prefix=os.path.basename(path) + ".", suffix=".tmp",
+                delete=False) as handle:
+            handle.write(content)
+            temporary = handle.name
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true",
+                        help="fail instead of rewriting a stale artifact")
+    parser.add_argument("--output", default=OUT_LUA,
+                        help="generated Lua path (default: %(default)s)")
+    args = parser.parse_args(argv)
     cols = spell_column_indices()
     eff_idx = [cols["Effect_%d" % i] for i in (1, 2, 3)]
     misc_idx = [cols["EffectMiscValue_%d" % i] for i in (1, 2, 3)]
@@ -146,10 +182,12 @@ def main():
         lines.append('  [%d] = { class=%d, property=%d, aura=%d, minor=%d, rune="%s" }, -- %s'
                      % (entry, subclass, prop_id, aura, minor, rune, name))
     lines.append("}")
-    with open(OUT_LUA, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+    content = "\n".join(lines) + "\n"
+    write_generated(args.output, content, args.check)
 
-    print("wrote %s: %d glyphs (%d major / %d minor)" % (OUT_LUA, len(out), majors, minors))
+    verb = "verified" if args.check else "wrote"
+    print("%s %s: %d glyphs (%d major / %d minor)" %
+          (verb, args.output, len(out), majors, minors))
     print("per class:", dict(sorted(per_class.items())))
     for entry, name, why in skipped[:8]:
         print("skipped %d %s: %s" % (entry, name, why))

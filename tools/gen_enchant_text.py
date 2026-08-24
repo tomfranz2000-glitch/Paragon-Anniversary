@@ -11,17 +11,24 @@ replace-popup auto-accept. That addon path is deleted (ReplaceEnchant() is
 protected — the §1e eager-shift core addendum suppresses the popup
 server-side instead), so only the id -> text table remains.
 """
+import argparse
 import os
 import sys
 
 import gen_glyph_data as g
 
-OUT = os.path.join(g.HERE, "..", "Client", "Interface", "AddOns", "Paragon",
+OUT = os.path.join(g.REPO_ROOT, "clientside", "Interface", "AddOns", "Paragon",
                    "Paragon", "Paragon_EnchantText.lua")
 KNOWN = {3790: "Black Magic", 1103: "+26 Agility"}
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true",
+                        help="fail instead of rewriting a stale artifact")
+    parser.add_argument("--output", default=OUT,
+                        help="generated addon Lua path (default: %(default)s)")
+    args = parser.parse_args(argv)
     records, field_count, block = g.read_wdbc_ints(
         g.extract_dbc("SpellItemEnchantment.dbc"))
     by_id = {r[0]: r for r in records}
@@ -63,9 +70,9 @@ def main():
         count += 1
     lines.append("}")
 
-    with open(OUT, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
-    print(f"OK: {count} enchants (name col {name_col}) -> {os.path.normpath(OUT)}")
+    g.write_generated(args.output, "\n".join(lines) + "\n", args.check)
+    verb = "verified" if args.check else "wrote"
+    print(f"OK: {verb} {count} enchants (name col {name_col}) -> {os.path.normpath(args.output)}")
 
 
 if __name__ == "__main__":

@@ -21,7 +21,10 @@ CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config_statistic` (
     `id` INT NOT NULL AUTO_INCREMENT,
     `category` INT NOT NULL DEFAULT 1,
     `type` ENUM('AURA','COMBAT_RATING','UNIT_MODS') NOT NULL DEFAULT 'AURA',
-    `type_value` INT NOT NULL DEFAULT 0,
+    -- Symbolic keys are resolved through paragon_constant.lua. VARCHAR keeps
+    -- upgrades non-destructive for legacy/custom rows while the triggers in
+    -- 03_create_triggers.sql enforce every supported type/value pairing.
+    `type_value` VARCHAR(32) NOT NULL DEFAULT 'LOOT',
     `icon` VARCHAR(50) NOT NULL DEFAULT '0',
     `factor` INT NOT NULL DEFAULT 1,
     `limit` INT(3) NOT NULL DEFAULT 255,

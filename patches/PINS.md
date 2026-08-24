@@ -5,9 +5,9 @@
 | `01-core-paragon.patch` | `github.com/mod-playerbots/azerothcore-wotlk` branch `Playerbot` | `efe123fab543c5faf3c477674ec17a18fd59f09f` |
 | `02-core-profession-xp.patch` | same | same |
 | `04-core-docker-build-jobs.patch` | same | same |
-| `05-mod-ale.patch` | `github.com/azerothcore/mod-eluna` | `9e5b8c6` |
+| `05-mod-ale.patch` | `github.com/azerothcore/mod-eluna` | `9e5b8c66efeb383871ec58b925e47094c92cc8d5` |
 | `06-AccountBound.patch` | `github.com/AlsoNotMehh/AccountBound` | `f7ba75b14bdf04f4a4e711f0b6f71a0589ea4649` |
-| `07-mod-ale-profession-xp.patch` | `github.com/azerothcore/mod-eluna` | `9e5b8c6` |
+| `07-mod-ale-profession-xp.patch` | `github.com/azerothcore/mod-eluna` | `9e5b8c66efeb383871ec58b925e47094c92cc8d5` |
 
 Apply the core patches in `01`, `02`, `04` order. Apply the mod-ale patches in
 `05`, `07` order. The profession-XP patches are deliberately separate layers:
@@ -54,6 +54,9 @@ Clone `github.com/azerothcore/mod-eluna` with the explicit target directory
 ```bash
 cd /path/to/azerothcore
 git clone https://github.com/azerothcore/mod-eluna.git modules/mod-ale
+git -C modules/mod-ale checkout --detach \
+    9e5b8c66efeb383871ec58b925e47094c92cc8d5
+git -C modules/mod-ale rev-parse HEAD
 ```
 
 The default clone directory, `modules/mod-eluna`, is not a supported name.

@@ -39,8 +39,6 @@ we care about, so we hash those and look them up. The listfile, when present,
 is used only for the informational per-archive summary.
 """
 import argparse
-import ctypes
-import ctypes.wintypes as wt
 import os
 import struct
 import sys
@@ -62,38 +60,31 @@ from build_mpq import (hash_string, decrypt_block,          # noqa: E402
 
 
 # --------------------------------------------------------------------------
-# 1. discovery -- the same two wildcards the client uses, via the same API
+# 1. discovery -- reproduce the client's exact one-character wildcard
 # --------------------------------------------------------------------------
-class _FindData(ctypes.Structure):
-    _fields_ = [("attrs", wt.DWORD), ("ctime", wt.FILETIME),
-                ("atime", wt.FILETIME), ("mtime", wt.FILETIME),
-                ("size_hi", wt.DWORD), ("size_lo", wt.DWORD),
-                ("r0", wt.DWORD), ("r1", wt.DWORD),
-                ("name", wt.WCHAR * 260), ("alt_name", wt.WCHAR * 14)]
-
-
-_k32 = ctypes.windll.kernel32
-_k32.FindFirstFileW.restype = ctypes.c_void_p
-_k32.FindFirstFileW.argtypes = [wt.LPCWSTR, ctypes.POINTER(_FindData)]
-_k32.FindNextFileW.restype = wt.BOOL
-_k32.FindNextFileW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_FindData)]
-_k32.FindClose.argtypes = [ctypes.c_void_p]
-_INVALID = ctypes.c_void_p(-1).value
-
-
 def win32_glob(pattern):
-    """Real FindFirstFile semantics -- fnmatch is NOT equivalent here."""
-    data = _FindData()
-    handle = _k32.FindFirstFileW(pattern, ctypes.byref(data))
-    if handle in (None, _INVALID):
+    """Return files matching the client's case-insensitive, one-char `?`.
+
+    A small explicit matcher is portable and avoids Python glob/fnmatch's
+    broader character and path semantics. The mount order is sorted later, so
+    directory enumeration order is intentionally irrelevant.
+    """
+    directory, wildcard = os.path.split(pattern)
+    if wildcard.count("?") != 1:
+        raise ValueError("mount wildcard must contain exactly one ?: %s" % pattern)
+    prefix, suffix = wildcard.split("?", 1)
+    try:
+        entries = os.scandir(directory)
+    except OSError:
         return []
-    out = []
-    while True:
-        out.append(data.name)
-        if not _k32.FindNextFileW(handle, ctypes.byref(data)):
-            break
-    _k32.FindClose(handle)
-    return out
+    with entries:
+        return [
+            entry.name for entry in entries
+            if entry.is_file()
+            and len(entry.name) == len(prefix) + 1 + len(suffix)
+            and entry.name[:len(prefix)].lower() == prefix.lower()
+            and entry.name[-len(suffix):].lower() == suffix.lower()
+        ]
 
 
 def mount_ladder():
@@ -203,21 +194,23 @@ def main():
     except ValueError as exc:
         ap.error(str(exc))
 
-    generated = [args.general_name,
-                 os.path.join(LOCALE, args.locale_name)]
-    foreign_targets = [rel for rel in generated
+    expected = [args.ui_name, args.general_name,
+                os.path.join(LOCALE, args.locale_name)]
+    foreign_targets = [rel for rel in expected
                        if os.path.exists(os.path.join(CLIENT_DATA, rel))
                        and not is_owned_archive(os.path.join(CLIENT_DATA, rel))]
-    ours = [args.ui_name] + [rel for rel in generated
-                               if os.path.exists(os.path.join(CLIENT_DATA, rel))
-                               and is_owned_archive(os.path.join(CLIENT_DATA, rel))]
+    missing_targets = [rel for rel in expected
+                       if not os.path.exists(os.path.join(CLIENT_DATA, rel))]
+    ours = [rel for rel in expected
+            if os.path.exists(os.path.join(CLIENT_DATA, rel))
+            and is_owned_archive(os.path.join(CLIENT_DATA, rel))]
     ladder = mount_ladder()
     ours_rel = set(o.lower() for o in ours)
-    configured_rel = set(o.lower() for o in generated)
+    configured_rel = set(o.lower() for o in expected)
 
     print("MOUNT LADDER (last wins)")
     print("-" * 68)
-    missing_ours = set(o.lower() for o in [args.ui_name] + generated)
+    missing_ours = set(o.lower() for o in expected)
     for prio, rel in ladder:
         full = os.path.join(CLIENT_DATA, rel)
         if not os.path.exists(full):
@@ -239,11 +232,18 @@ def main():
         print("   to this checker with --ui-name, --general-name, and")
         print("   --locale-name.")
         return 1
+    if missing_targets:
+        print("!! REQUIRED PARAGON ARCHIVE(S) MISSING:")
+        for rel in missing_targets:
+            print("     %s" % rel)
+        print("   Re-run the canonical installer to reproduce the complete client payload.")
+        return 1
     if missing_ours:
         print("!! expected archive(s) not on the ladder: %s"
               % ", ".join(sorted(missing_ours)))
         print("   (renamed? deleted? a two-character suffix never loads at all)")
         print()
+        return 1
 
     # names that can never be mounted -- easy to get wrong, silent when wrong
     stray = []
@@ -279,16 +279,25 @@ def main():
 
     # for each mounted archive, which of our filenames does it also carry?
     owners = {}
+    unreadable = []
     for prio, rel in ladder:
         full = os.path.join(CLIENT_DATA, rel)
         if not os.path.exists(full):
             continue
         hits = archive_contains(full, list(our_files))
         if hits is None:
-            print("  ? %-34s could not be parsed -- CHECK BY HAND" % rel)
+            unreadable.append(rel)
+            print("  ? %-34s could not be parsed" % rel)
             continue
         for name in hits:
             owners.setdefault(name, []).append((prio, rel))
+
+    if unreadable:
+        print("\n!! UNREADABLE MOUNTED ARCHIVE(S) -- collision safety cannot be proven:")
+        for rel in unreadable:
+            print("     %s" % rel)
+        print("   Remove/repair the archive or inspect it with a compatible MPQ tool.")
+        return 1
 
     collisions = []
     for name, holders in sorted(owners.items()):

@@ -4,7 +4,18 @@ This directory contains all SQL migration files required to set up the Paragon s
 
 ## Installation Instructions
 
-**IMPORTANT:** You must execute these SQL files manually in the correct order before starting your server with the Paragon system enabled.
+**IMPORTANT:** Initialize the normal AzerothCore databases first. A complete
+installation should use `python tools/install.py --apply`; it invokes this
+database bootstrap automatically. For a database-only recovery, run from the
+repository root before starting the worldserver:
+
+```bash
+mysql [connection options] < sql/install.sql
+```
+
+`sql/install.sql` is the supported entrypoint for both fresh installations and
+upgrades. It is rerunnable and fixes the component order so an installation
+cannot accidentally omit the profession ledger, configuration, or triggers.
 
 ### Execution Order
 
@@ -16,21 +27,26 @@ Execute the following files in order using your preferred MySQL client (MySQL Wo
 4. **04_insert_default_config.sql** - Inserts default configuration values
 5. **05_apply_anniversary_config.sql** - Updates an existing installation to the canonical Anniversary realm values
 
-### Quick Installation (All at once)
+### Component migrations
 
-You can also execute all files at once by running them in sequence, or by creating a master script that sources all files:
+`install.sql` sources these files in the required order:
 
 ```sql
-SOURCE 01_create_database.sql;
-SOURCE 02_create_tables.sql;
-SOURCE 03_create_triggers.sql;
-SOURCE 04_insert_default_config.sql;
-SOURCE 05_apply_anniversary_config.sql;
+SOURCE sql/01_create_database.sql;
+SOURCE sql/02_create_tables.sql;
+SOURCE sql/03_create_triggers.sql;
+SOURCE sql/04_insert_default_config.sql;
+SOURCE sql/05_apply_anniversary_config.sql;
 ```
+
+The component files remain available for diagnosis and review. Do not run them
+as an alternative installation path; use `sql/install.sql` so future migrations
+are picked up automatically. Because MySQL resolves `SOURCE` relative to the
+client's current directory, invoke the installer from the repository root.
 
 ### Verification
 
-After running all migration files, verify the installation by checking that the following tables exist:
+After running `sql/install.sql`, verify the installation by checking that the following tables exist:
 
 - `acore_ale.paragon_config_category`
 - `acore_ale.paragon_config_statistic`
@@ -62,16 +78,19 @@ SELECT COUNT(*) FROM acore_ale.paragon_config;
 SELECT value FROM acore_ale.paragon_config
 WHERE field = 'UNIVERSAL_SKILL_EXPERIENCE';
 -- Should return 1000
+SELECT COUNT(*) FROM acore_ale.paragon_config_category;
+-- Should return at least 4
+SELECT COUNT(*) FROM acore_ale.paragon_config_statistic;
+-- Should return at least 17
 ```
 
 `04_insert_default_config.sql` is non-destructive and only fills missing rows.
-Run `05_apply_anniversary_config.sql` once when upgrading an existing database;
-it intentionally replaces previous configuration values with this fork's realm
-preset, updates the legacy skill-override column default to 1000, creates the
-profession ledger, and seeds current account/character high-water values without
-retroactive XP. Profession skill-up awards use the universal exact value; legacy
-per-skill rows are retained for schema compatibility but do not override that
-flat high-water contract.
+The bootstrap's final migration intentionally replaces previous configuration
+values with this fork's realm preset, updates the legacy skill-override column
+default to 1000, creates the profession ledger, and seeds current
+account/character high-water values without retroactive XP. Profession skill-up
+awards use the universal exact value; legacy per-skill rows are retained for
+schema compatibility but do not override that flat high-water contract.
 
 ## Generated world content
 
@@ -83,7 +102,7 @@ spells, talents, trainer ranks, achievements, criteria, and titles in
 python tools/paragon_client_patch.py --apply
 ```
 
-That command regenerates `tools/generated/paragon_content.sql`, builds the
+That command regenerates `sql/content/01_paragon_content.sql`, builds the
 matching client DBC archives, and applies the SQL. Import
 `content/01_paragon_content.sql` manually only for an intentional SQL-only
 deployment or recovery; do not apply it as an additional mandatory step after
@@ -99,30 +118,15 @@ reports the missing tables. Stop the worldserver, execute the required SQL and
 generated-content steps, then start it again. A script reload cannot refresh
 the custom DBC override tables.
 
-## Example Data
+## Historical example dump
 
 **File:** `11-13-2026_Example_Data.sql`
 
-This file contains a **complete example configuration** with:
-- ✅ **3 Categories**: Combat, Stats, Special
-- ✅ **25+ Statistics**: Fully configured with proper types, values, icons, factors, and limits
-- ✅ **All table structures**: Includes all tables with example data
-
-**When to use this file:**
-- You're setting up a new server and want a working configuration immediately
-- You want to see examples of properly configured statistics
-- You're testing the Paragon system
-
-**How to use:**
-```sql
--- After executing files 01-05, optionally load the example data:
-SOURCE 11-13-2026_Example_Data.sql;
-```
-
-**Important Notes:**
-- This file uses `DROP TABLE IF EXISTS`, so it will **replace** your existing data
-- If you have custom categories/statistics, back them up before running this file
-- You can use this as a reference and manually insert only the data you need
+This dated export is retained only as historical reference. Do **not** execute
+it during an installation or upgrade: it drops tables, replaces data, omits
+newer Anniversary tables, and contains the unsupported legacy `GOLD` and
+`MOVE_SPEED` statistic rows. The canonical bootstrap already inserts all four
+categories and the 17 statistics implemented by the current runtime.
 
 ## Database Name
 

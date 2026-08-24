@@ -8,6 +8,8 @@ __pycache__/
 # Generated, and regenerable from the tools above
 tools/generated/collectible_xp_review.csv
 tools/generated/class_track.lua
+tools/generated/class_talent_ranks.py
+tools/generated/class_trainer_ranks.py
 tools/generated/*.dbc
 tools/generated/err.txt
 

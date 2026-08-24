@@ -19,24 +19,39 @@ while the generators execute.
 1. Clone the pinned playerbot core and required modules.
 2. Apply the patches under `patches/` to their correct repositories.
 3. Build the core and complete the normal AzerothCore database import.
-4. Apply `sql/01_create_database.sql` through
-   `sql/05_apply_anniversary_config.sql` in order.
-5. Generate and `--check` profession XP data against the populated world
-   database and the rebuilt server's active DBCs.
-6. Install `serverside/paragon` and the ALE extensions under the configured
-   `ALE.ScriptPath`.
-7. Run the two class-data generators, then the unified client/content
-   generator.
-8. Populate collection and quest XP.
-9. Install the 27-file addon and build the 14-file UI-art archive.
-10. Verify the installation, then start the worldserver and fully restart the
-   client.
+4. Install `requirements.txt`, set the documented paths, and stop the
+   worldserver.
+5. From the Paragon repository root, run the one complete installation command:
+
+   ```bash
+   python tools/install.py --apply \
+       --core-root /path/to/azerothcore \
+       --client-root /path/to/WowWotlk
+   ```
+
+6. Run the command again with `--check`, start the worldserver, and fully
+   restart the client.
+
+`tools/install.py` applies the canonical database bootstrap, regenerates all
+server/client data, deploys Lua/ALE extensions and the addon, seeds existing
+collections without retroactive XP, builds the three owned MPQs, and verifies
+the complete payload. `--apply` is rerunnable. `--check` is read-only, while
+`--dry-run` prints the exact ordered plan without probing containers, reading
+secrets, writing files, or changing databases. Its checks privately rebuild all
+three MPQs and exactly compare every generator-owned database row, including
+stale IDs from reserved custom ranges. The remaining sections document the
+pipeline's prerequisites and component commands for diagnosis/recovery.
+The deployed `paragon/`, `extensions/`, and addon directories are managed as
+exact copies; add any required ALE extension to the pinned mod-ale source tree
+before applying so clean installs and upgrades cannot diverge through stale
+files.
 
 ## 1. Prerequisites and repository layout
 
 Required software and data:
 
-- Python 3 and `mpyq`: `python -m pip install mpyq`
+- Python 3.10+ and the pinned packages:
+  `python -m pip install -r requirements.txt`
 - Git, CMake/build tools, and MySQL client access
 - Docker when using the supplied generator commands; they currently connect
   to a database container named `ac-database`
@@ -48,20 +63,20 @@ Required software and data:
 - `mod-collections` when collection XP should include account-wide mounts and
   companions; without it those awards remain zero
 
-Set the database password and the real client `Data` directory before running
-any tool. `PARAGON_CLIENT_DATA` points to `Data`, not the WoW root.
+Component tools use `PARAGON_CLIENT_DATA` for the real client `Data` directory;
+it points to `Data`, not the WoW root. The canonical installer derives the same
+path from `--client-root`. Database tools read `MYSQL_ROOT_PASSWORD` only
+inside `ac-database`, so the password is never placed in a host command line.
 
 PowerShell:
 
 ```powershell
-$env:ACORE_DB_PASS = "your-database-root-password"
 $env:PARAGON_CLIENT_DATA = "C:\Games\World of Warcraft 3.3.5a\Data"
 ```
 
 Bash:
 
 ```bash
-export ACORE_DB_PASS="your-database-root-password"
 export PARAGON_CLIENT_DATA="/games/wow-3.3.5a/Data"
 ```
 
@@ -76,6 +91,21 @@ not stock AzerothCore. Apply patches against the base commits listed in
 `patches/PINS.md`; a failed hunk means the checkout has drifted and should not
 be forced.
 
+Clone and detach the exact tested core before adding modules or applying any
+patch:
+
+```bash
+git clone --branch Playerbot --single-branch \
+    https://github.com/mod-playerbots/azerothcore-wotlk.git \
+    /path/to/azerothcore
+git -C /path/to/azerothcore checkout --detach \
+    efe123fab543c5faf3c477674ec17a18fd59f09f
+git -C /path/to/azerothcore rev-parse HEAD
+```
+
+The final command must print
+`efe123fab543c5faf3c477674ec17a18fd59f09f`.
+
 ### ALE directory name
 
 Clone the upstream repository with the explicit target **`modules/mod-ale`**:
@@ -83,7 +113,13 @@ Clone the upstream repository with the explicit target **`modules/mod-ale`**:
 ```bash
 cd /path/to/azerothcore
 git clone https://github.com/azerothcore/mod-eluna.git modules/mod-ale
+git -C modules/mod-ale checkout --detach \
+    9e5b8c66efeb383871ec58b925e47094c92cc8d5
+git -C modules/mod-ale rev-parse HEAD
 ```
+
+The final command must print
+`9e5b8c66efeb383871ec58b925e47094c92cc8d5`.
 
 The default target `modules/mod-eluna` is wrong for this core. Module discovery
 finds it, but `modules/CMakeLists.txt` skips `ConfigureALEModule`, so the build
@@ -169,17 +205,23 @@ Complete AzerothCore's normal auth/characters/world/playerbots import first.
 The Paragon generators query populated world tables and cannot run against an
 empty `acore_world` database.
 
-Run these five files in exactly this order:
+The normal `tools/install.py --apply` pipeline runs the database bootstrap
+automatically by streaming each component into `ac-database` in order. For a
+database-only recovery with a host MySQL/MariaDB client, run from the Paragon
+repository root:
 
-```sql
-SOURCE sql/01_create_database.sql;
-SOURCE sql/02_create_tables.sql;
-SOURCE sql/03_create_triggers.sql;
-SOURCE sql/04_insert_default_config.sql;
-SOURCE sql/05_apply_anniversary_config.sql;
+```bash
+mysql [connection options] < sql/install.sql
 ```
 
-There is no required `sql/06` file. `02_create_tables.sql` is the single
+Run the direct form from the repository root: the mysql client resolves its
+`SOURCE` paths relative to its working directory. The entrypoint executes
+`01_create_database.sql` through `05_apply_anniversary_config.sql` in their
+required order and is safe to rerun for an upgrade. `05` intentionally
+reapplies the canonical Anniversary realm settings and raises existing
+profession high-water marks without awarding retroactive XP.
+
+There is no required `sql/06` file. `02_create_tables.sql` remains the single
 authoritative schema and creates all 21 base and Anniversary tables, including
 the five collection/codex support tables that older installs lacked.
 
@@ -200,8 +242,10 @@ and permits Paragon XP only from character level 80.
 ## 4. Generate profession data and install server Lua
 
 The populated `acore_world` database and the exact DBC set used by the rebuilt
-worldserver are both valuation inputs. Generate and verify the profession data
-**before** copying the Lua package so the deployed resolver cannot be stale:
+worldserver are both valuation inputs. The canonical installer generates and
+verifies profession data **before** replacing the Lua package so the deployed
+resolver cannot be stale. The commands below show that internal step for
+diagnosis or a component-only repair.
 
 On a fresh Docker installation, first populate AzerothCore's client-data volume
 and create the rebuilt worldserver container without starting it. The generator
@@ -299,8 +343,9 @@ script path is therefore required even after a successful rebuild.
 
 ## 5. Generate and apply custom content
 
-Keep `ac-database` running and the worldserver stopped. From the
-Paragon-Anniversary repository root, run:
+The canonical installer performs this section in order. For a component-only
+repair, keep `ac-database` running and the worldserver stopped, then run from
+the Paragon-Anniversary repository root:
 
 ```bash
 python tools/gen_class_talents.py --emit
@@ -315,7 +360,7 @@ to run without them.
 
 `paragon_client_patch.py --apply` then:
 
-- generates `tools/generated/paragon_content.sql`;
+- regenerates `sql/content/01_paragon_content.sql`;
 - applies that SQL to `acore_world`;
 - generates all custom spells, talents, trainer ranks, achievements, criteria,
   and both custom title override rows;
@@ -345,7 +390,8 @@ build can silently remove the other custom records from the client archives.
 
 ## 6. Populate collection and quest XP
 
-After the base schema exists and the AzerothCore world import is complete, run:
+The canonical installer runs both commands after the base schema and content
+exist. For a component-only repair, run:
 
 ```bash
 python tools/paragon_collectible_xp.py --seed
@@ -370,7 +416,8 @@ populated world database and active DBCs before server Lua is copied.
 The client UI is complete. It consists of a normal 27-file addon plus 14 BLP
 art files. The addon must not be packed into an MPQ.
 
-Copy the addon directory to the WoW client:
+The canonical installer replaces the addon directory and verifies it
+byte-for-byte. For a component-only repair, copy it to the WoW client:
 
 ```bash
 cp -r clientside/Interface/AddOns/Paragon \
@@ -507,11 +554,12 @@ python tools/gen_class_talents.py --emit
 python tools/gen_class_trainers.py --emit
 ```
 
-### `set ACORE_DB_PASS` or MySQL connection failure
+### MySQL connection failure
 
-Set `ACORE_DB_PASS`, confirm the container is named `ac-database`, and confirm
-the AzerothCore world import completed. The generators use `docker exec` and
-the populated world schema.
+Confirm the container is named `ac-database`, its standard
+`MYSQL_ROOT_PASSWORD` environment is present, and the AzerothCore world import
+completed. The generators read that credential only inside the container and
+query the populated world schema through `docker exec`.
 
 ### A DBC cannot be found
 
@@ -527,9 +575,8 @@ the generator and collision checker with matching names.
 
 ### Server boot-loops on missing Paragon tables
 
-Reapply `sql/01_create_database.sql` through
-`sql/05_apply_anniversary_config.sql` in order. Do not rely on Lua to create
-the schema.
+Reapply `sql/install.sql` from the repository root. Do not rely on Lua to
+create the schema.
 
 ## Updating an existing installation
 
@@ -539,88 +586,33 @@ Back up the three AzerothCore databases plus `acore_ale`, update Paragon's
 
 Use this order for an in-place Docker upgrade:
 
-1. Keep `ac-database` and the existing worldserver available while taking the
-   backup. Apply `sql/01_create_database.sql` through
-   `sql/05_apply_anniversary_config.sql`; the migration is rerunnable, while
-   `05` intentionally reapplies the Anniversary preset.
-2. Build the patched worldserver/authserver images. Do not recreate either
-   container yet, so generation can still read the known active DBC volume.
+1. Back up `acore_auth`, `acore_characters`, `acore_world`, `acore_playerbots`,
+   and `acore_ale`, then update the pinned repositories/patches and rebuild the
+   worldserver/authserver images.
+2. Keep `ac-database` running, stop `ac-worldserver`, and fully close the game
+   client. The installer deliberately refuses `--apply` while the worldserver
+   is running, preventing an ALE auto-reload of a partially replaced payload.
+3. Run the same canonical command used for a fresh installation:
 
    ```bash
-   cd /path/to/azerothcore
-   docker compose build ac-worldserver ac-authserver
+   cd /path/to/Paragon-Anniversary
+   python tools/install.py --apply \
+       --core-root /path/to/azerothcore \
+       --client-root /path/to/WowWotlk
+   python tools/install.py --check \
+       --core-root /path/to/azerothcore \
+       --client-root /path/to/WowWotlk
    ```
 
-3. Run `tools/gen_profession_xp.py` and its `--check` command from section 4.
-4. Stage a **complete** copy of `serverside/paragon/` and
-   `modules/mod-ale/src/LuaEngine/extensions/` outside the live
-   `ALE.ScriptPath`. Verify that the staged tree contains
-   `paragon/modules/paragon_profession_xp.lua`,
-   `paragon/modules/paragon_profession_data.lua`, and
-   `extensions/ObjectVariables.ext`.
-
-   The following stages a full replacement beside the live directory, on the
-   same filesystem. It also preserves unrelated scripts already installed
-   under `lua_scripts/`. Run the command blocks in steps 4–8 in the same shell
-   session so the two task-specific path variables remain available:
-
-   ```bash
-   cd /path/to/azerothcore
-   stage_root=$(mktemp -d "$PWD/env/dist/etc/lua-stage.XXXXXX")
-   mkdir -p "$stage_root/lua_scripts"
-   cp -a env/dist/etc/lua_scripts/. "$stage_root/lua_scripts/"
-   if [ -d "$stage_root/lua_scripts/paragon" ]; then
-       mv "$stage_root/lua_scripts/paragon" "$stage_root/paragon.previous"
-   fi
-   if [ -d "$stage_root/lua_scripts/extensions" ]; then
-       mv "$stage_root/lua_scripts/extensions" "$stage_root/extensions.previous"
-   fi
-   cp -a /path/to/Paragon-Anniversary/serverside/paragon \
-         "$stage_root/lua_scripts/"
-   cp -a modules/mod-ale/src/LuaEngine/extensions \
-         "$stage_root/lua_scripts/"
-   test -f "$stage_root/lua_scripts/paragon/modules/paragon_profession_xp.lua"
-   test -f "$stage_root/lua_scripts/paragon/modules/paragon_profession_data.lua"
-   test -f "$stage_root/lua_scripts/extensions/ObjectVariables.ext"
-   ```
-
-5. Stop `ac-worldserver` before changing the bind-mounted script path. This is
-   mandatory when `ALE.AutoReload` is enabled: a live, file-by-file copy can
-   reload a partial 1.6 MB generated module or register event 76 against the
-   old binary.
-6. While the worldserver is stopped, replace/synchronize both live directories
-   from the verified staging tree in one maintenance window. Copying only the
-   changed Lua files is unsupported. Recopy the complete Paragon directory and
-   the complete ALE extensions directory. These same-filesystem renames leave
-   a timestamped rollback tree intact:
-
-   ```bash
-   cd /path/to/azerothcore
-   docker compose stop ac-worldserver
-   live_scripts="$PWD/env/dist/etc/lua_scripts"
-   previous_scripts="${live_scripts}.previous.$(date +%Y%m%d%H%M%S)"
-   mv "$live_scripts" "$previous_scripts"
-   mv "$stage_root/lua_scripts" "$live_scripts"
-   ```
-
-7. With the worldserver still stopped and the client fully closed, regenerate
-   the two class intermediate files, run `paragon_client_patch.py --apply`,
-   repopulate collection/quest XP, rebuild `patch-W.MPQ`, and recopy the addon.
-8. Force-recreate the worldserver from the newly built image, then verify the
-   boot log before admitting players:
-
-   ```bash
-   cd /path/to/azerothcore
-   docker compose up -d --no-deps --force-recreate ac-worldserver
-   docker compose logs --tail=200 ac-worldserver
-   ```
-
-   The log must show a successful world initialization and profession-module
-   load with no schema, event-registration, or Lua compile error. Keep
-   `$previous_scripts` until this verification succeeds; it is the rollback
-   source if startup fails.
-9. Force-recreate `ac-authserver` if its image was rebuilt, then fully restart
-   the client.
+   `--apply` reruns every SQL migration, regenerates data from the upgraded
+   world/DBC inputs, replaces the complete Paragon and addon trees atomically,
+   replaces the complete ALE extension set, rebuilds owned archives, and verifies
+   database/payload invariants. The schema bootstrap preserves custom
+   category/statistic rows, while generator-owned tables are refreshed from
+   their authoritative inputs.
+4. Force-recreate the rebuilt servers, inspect the worldserver boot log for a
+   successful profession-module load with no schema/event/Lua error, then fully
+   restart the client.
 
 For implementation details and hard-won compatibility notes, see
 [`doc/CORE_PATCHES.md`](CORE_PATCHES.md).

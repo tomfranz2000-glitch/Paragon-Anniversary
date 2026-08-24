@@ -108,6 +108,14 @@ class PatchArchiveSafetyTests(unittest.TestCase):
         with open(target, "rb") as f:
             self.assertEqual(b"third-party archive", f.read())
 
+    def test_client_generator_uses_process_private_staging(self):
+        with open(paragon_client_patch.__file__, encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertIn(
+            'tempfile.mkdtemp(prefix="paragon-client-stage-")', source)
+        self.assertIn(
+            "shutil.rmtree(stage_root, ignore_errors=True)", source)
+
     def test_collision_checker_does_not_claim_foreign_default_name(self):
         client_data = os.path.join(self.temp.name, "Client", "Data")
         os.makedirs(os.path.join(client_data, "enUS"))
@@ -120,6 +128,73 @@ class PatchArchiveSafetyTests(unittest.TestCase):
                 contextlib.redirect_stdout(output):
             self.assertEqual(1, check_patch_collisions.main())
         self.assertIn("NOT Paragon-owned", output.getvalue())
+
+    def test_collision_checker_rejects_missing_expected_archive(self):
+        client_data = os.path.join(self.temp.name, "Client", "Data")
+        os.makedirs(os.path.join(client_data, "enUS"))
+
+        output = io.StringIO()
+        with mock.patch.object(check_patch_collisions, "CLIENT_DATA", client_data), \
+                mock.patch("sys.argv", ["check_patch_collisions.py"]), \
+                contextlib.redirect_stdout(output):
+            self.assertEqual(1, check_patch_collisions.main())
+        self.assertIn("REQUIRED PARAGON ARCHIVE(S) MISSING", output.getvalue())
+        self.assertIn("patch-W.MPQ", output.getvalue())
+
+    def test_collision_checker_checks_ui_archive_ownership(self):
+        client_data = os.path.join(self.temp.name, "Client", "Data")
+        os.makedirs(os.path.join(client_data, "enUS"))
+        with open(os.path.join(client_data, "patch-W.MPQ"), "wb") as f:
+            f.write(b"third-party UI archive")
+
+        output = io.StringIO()
+        with mock.patch.object(check_patch_collisions, "CLIENT_DATA", client_data), \
+                mock.patch("sys.argv", ["check_patch_collisions.py"]), \
+                contextlib.redirect_stdout(output):
+            self.assertEqual(1, check_patch_collisions.main())
+        self.assertIn("NOT Paragon-owned", output.getvalue())
+        self.assertIn("patch-W.MPQ", output.getvalue())
+
+    def test_mount_discovery_is_portable_and_suffix_is_exactly_one_char(self):
+        client_data = os.path.join(self.temp.name, "Client", "Data")
+        locale = os.path.join(client_data, "enUS")
+        os.makedirs(locale)
+        for path in (
+                os.path.join(client_data, "patch-X.MPQ"),
+                os.path.join(client_data, "PATCH-w.mpq"),
+                os.path.join(client_data, "patch-10.MPQ"),
+                os.path.join(locale, "patch-enUS-X.MPQ"),
+                os.path.join(locale, "patch-enUS-10.MPQ")):
+            with open(path, "wb") as handle:
+                handle.write(b"test")
+
+        with mock.patch.object(check_patch_collisions, "CLIENT_DATA", client_data):
+            mounted = {path.lower() for _priority, path
+                       in check_patch_collisions.mount_ladder()}
+        self.assertIn("patch-x.mpq", mounted)
+        self.assertIn("patch-w.mpq", mounted)
+        self.assertIn(os.path.join("enus", "patch-enus-x.mpq"), mounted)
+        self.assertNotIn("patch-10.mpq", mounted)
+        self.assertNotIn(os.path.join("enus", "patch-enus-10.mpq"), mounted)
+
+    def test_collision_checker_fails_closed_on_unreadable_mounted_archive(self):
+        client_data = os.path.join(self.temp.name, "Client", "Data")
+        locale = os.path.join(client_data, "enUS")
+        os.makedirs(locale)
+        for path in (
+                os.path.join(client_data, "patch-W.MPQ"),
+                os.path.join(client_data, "patch-X.MPQ"),
+                os.path.join(locale, "patch-enUS-X.MPQ")):
+            build_mpq.build(self.source, path)
+        with open(os.path.join(client_data, "patch-Z.MPQ"), "wb") as handle:
+            handle.write(b"not an MPQ")
+
+        output = io.StringIO()
+        with mock.patch.object(check_patch_collisions, "CLIENT_DATA", client_data), \
+                mock.patch("sys.argv", ["check_patch_collisions.py"]), \
+                contextlib.redirect_stdout(output):
+            self.assertEqual(1, check_patch_collisions.main())
+        self.assertIn("UNREADABLE MOUNTED ARCHIVE", output.getvalue())
 
 
 if __name__ == "__main__":

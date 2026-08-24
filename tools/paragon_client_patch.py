@@ -5,7 +5,7 @@ patch_client_dbc.py generators; running either legacy pipeline would rebuild
 the MPQs with only its own slice of the content.
 
 Emits, from the three config tables below:
-  - generated/paragon_content.sql : spell_dbc rows (talent ranks, spell ranks,
+  - sql/content/01_paragon_content.sql : spell_dbc rows (talent ranks, spell ranks,
     markers), talent_dbc override, spell_ranks chain rows, npc_trainer rows
   - Client/Data/patch-X.MPQ + Client/Data/enUS/patch-enUS-X.MPQ by default,
     containing the patched Talent.dbc + Spell.dbc (built from pristine
@@ -21,11 +21,13 @@ Usage: python paragon_client_patch.py [--apply]
        [--general-name patch-X.MPQ] [--locale-name patch-enUS-X.MPQ]
 """
 import argparse
+import atexit
 import os
 import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 
 # ============================================================================
 # CONFIG
@@ -1047,8 +1049,10 @@ CUSTOM_SPELLS = [
 HERE = os.path.dirname(os.path.abspath(__file__))
 CLIENT_DATA = os.path.abspath(os.environ.get(
     "PARAGON_CLIENT_DATA", os.path.join(HERE, "..", "Client", "Data")))
-CACHE = os.path.join(HERE, "cache")
-OUT_SQL = os.path.join(HERE, "generated", "paragon_content.sql")
+CACHE = os.path.abspath(os.environ.get(
+    "PARAGON_DBC_CACHE", os.path.join(HERE, "cache")))
+OUT_SQL = os.path.join(os.path.dirname(HERE), "sql", "content",
+                       "01_paragon_content.sql")
 STAGE_LOCALE = os.path.join(HERE, "stage-locale", "DBFilesClient")
 STAGE_GENERAL = os.path.join(HERE, "stage-general", "DBFilesClient")
 # !! THE PATCH LETTER IS THE LOAD ORDER, AND EVERY LETTER BEATS EVERY DIGIT !!
@@ -1079,8 +1083,7 @@ DEFAULT_LOCALE_NAME = "patch-enUS-X.MPQ"
 # so their presence is reported but they are never deleted automatically.
 LEGACY_MPQS = [os.path.abspath(os.path.join(CLIENT_DATA, "patch-5.MPQ")),
                os.path.abspath(os.path.join(CLIENT_DATA, "enUS", "patch-enUS-5.MPQ"))]
-DB_CONTAINER = "ac-database"
-DB_PASS = os.environ.get("ACORE_DB_PASS", "")
+DB_CONTAINER = os.environ.get("ACORE_DB_CONTAINER", "ac-database")
 SPELL_FIELDS, TALENT_FIELDS, MAX_RANK_SLOTS = 234, 23, 9
 
 # Codex node 59 "Skies of Azeroth": every CLIENT record carrying
@@ -1269,10 +1272,11 @@ SOLO_CAPSTONE_ICON_NAMES = ["Glory of the Hero", "Northrend Dungeonmaster"]
 
 
 def mysql(sql, db="acore_world"):
-    if not DB_PASS:
-        sys.exit("set ACORE_DB_PASS to your world DB password")
     r = subprocess.run(
-        ["docker", "exec", "-i", DB_CONTAINER, "mysql", "-uroot", "-p" + DB_PASS, "-N", db],
+        ["docker", "exec", "-i", DB_CONTAINER, "sh", "-lc",
+         'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" '
+         '--default-character-set=utf8mb4 --raw --batch '
+         '--skip-column-names "$1"', "paragon-mysql", db],
         input=sql.encode(), capture_output=True)
     if r.returncode != 0:
         sys.exit("mysql failed: " + r.stderr.decode()[:500])
@@ -1334,6 +1338,7 @@ def extract_dbc(name):
 
 
 def main():
+    global STAGE_LOCALE, STAGE_GENERAL
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
     ap.add_argument(
@@ -1366,6 +1371,14 @@ def main():
           % (os.path.basename(mpq_general), os.path.basename(mpq_locale)))
 
     load_generated_class_data()
+    # A clean, process-private stage makes repeated and concurrent builds
+    # hermetic. Fixed tools/stage-* directories retained files that a newer
+    # generator stopped emitting and silently repacked those stale DBCs.
+    stage_root = tempfile.mkdtemp(prefix="paragon-client-stage-")
+    atexit.register(
+        lambda path=stage_root: shutil.rmtree(path, ignore_errors=True))
+    STAGE_LOCALE = os.path.join(stage_root, "locale", "DBFilesClient")
+    STAGE_GENERAL = os.path.join(stage_root, "general", "DBFilesClient")
     for stage in (STAGE_LOCALE, STAGE_GENERAL):
         os.makedirs(stage, exist_ok=True)
 
@@ -2418,6 +2431,8 @@ def main():
         print(r.stdout.strip() or r.stderr.strip())
         if r.returncode != 0:
             sys.exit("MPQ build failed")
+
+    shutil.rmtree(stage_root, ignore_errors=True)
 
     if args.apply:
         with open(OUT_SQL, encoding="utf-8") as f:

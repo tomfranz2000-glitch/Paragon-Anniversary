@@ -26,7 +26,6 @@ REPOSITORY = os.path.join(
 SCHEMA = os.path.join(ROOT, "sql", "02_create_tables.sql")
 DEFAULT_CONFIG = os.path.join(ROOT, "sql", "04_insert_default_config.sql")
 ANNIVERSARY_CONFIG = os.path.join(ROOT, "sql", "05_apply_anniversary_config.sql")
-EXAMPLE_CONFIG = os.path.join(ROOT, "sql", "11-13-2026_Example_Data.sql")
 
 PROFESSION_SKILLS = {
     129, 164, 165, 171, 182, 185, 186,
@@ -562,7 +561,7 @@ class ParagonProfessionXPConfigContractTests(unittest.TestCase):
         pattern = re.compile(
             r"\('UNIVERSAL_SKILL_EXPERIENCE',\s*'(?P<value>\d+)'\)"
         )
-        for path in (CONSTANT, DEFAULT_CONFIG, ANNIVERSARY_CONFIG, EXAMPLE_CONFIG):
+        for path in (DEFAULT_CONFIG, ANNIVERSARY_CONFIG):
             with self.subTest(path=os.path.relpath(path, ROOT)):
                 match = pattern.search(self.read(path))
                 self.assertIsNotNone(match)
@@ -574,7 +573,7 @@ class ParagonProfessionXPConfigContractTests(unittest.TestCase):
             r"`experience`\s+INT(?:\(11\))?\s+NOT NULL\s+DEFAULT\s+['\"]?1000",
             re.DOTALL | re.IGNORECASE,
         )
-        for path in (CONSTANT, SCHEMA, EXAMPLE_CONFIG):
+        for path in (SCHEMA,):
             with self.subTest(path=os.path.relpath(path, ROOT)):
                 self.assertRegex(self.read(path), table_pattern)
 
@@ -590,7 +589,7 @@ class ParagonProfessionXPConfigContractTests(unittest.TestCase):
             rf"CREATE TABLE IF NOT EXISTS.*?{table}.*?ENGINE=InnoDB",
             re.DOTALL | re.IGNORECASE,
         )
-        for path in (CONSTANT, SCHEMA):
+        for path in (SCHEMA,):
             text = self.read(path)
             with self.subTest(path=os.path.relpath(path, ROOT), table="character"):
                 self.assertRegex(text, create_pattern("character_paragon"))
@@ -614,6 +613,19 @@ class ParagonProfessionXPConfigContractTests(unittest.TestCase):
         module = self.read(MODULE)
         self.assertRegex(module, r"UPDATE %s progression\s+JOIN %s profession")
         self.assertIn("profession.pending_xp = 0", module)
+
+    def test_sql_is_the_only_schema_and_default_source(self):
+        constant = self.read(CONSTANT)
+        for obsolete in (
+            "CR_DB",
+            "CR_TABLE_",
+            "CT_TRIGGER_",
+            "INS_DEFAULT_CONFIG",
+            "CREATE TABLE",
+            "CREATE TRIGGER",
+        ):
+            self.assertNotIn(obsolete, constant)
+        self.assertIn("sql/install.sql", constant)
 
     def test_runtime_contract_uses_event76_and_generated_resolver(self):
         module = self.read(MODULE)
