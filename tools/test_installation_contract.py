@@ -63,6 +63,8 @@ class InstallationContractTests(unittest.TestCase):
             "patch-W.MPQ",
             "patch-X.MPQ",
             "patch-enUS-X.MPQ",
+            "PLAYERHOOK_ON_REWARD_KILL_REWARDER",
+            "events 77–81",
         ]
         for text in required:
             self.assertIn(text, guide)

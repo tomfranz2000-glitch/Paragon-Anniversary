@@ -194,6 +194,10 @@ seeds existing collections safely, and verifies the result. Use `--dry-run` to
 print its exact ordered plan without reading secrets or changing external state.
 `--check` regenerates all three MPQs in private temporary storage and exactly
 compares the generator-owned database rows without persistent database writes.
+Both `--apply` and `--check` also reject an incomplete patched C++ source tree,
+including missing ALE enabled-hook registrations and incomplete PvP Merit
+events 77–81. This validates the selected checkout; rebuild the server after
+patching because it does not establish which source produced an existing image.
 
 To validate the repository without deploying, install `requirements.txt` and
 run `python -m unittest discover -s tools -p "test_*.py"`. The complete

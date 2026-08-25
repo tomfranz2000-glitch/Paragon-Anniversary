@@ -33,6 +33,184 @@ def sample_config(root):
     )
 
 
+def write_native_kill_reward_fixture(core, register_enabled_hook=True):
+    sources = {
+        "src/server/game/Entities/Player/KillRewarder.cpp": """
+            sScriptMgr->OnPlayerRewardKillRewarder(player, this, isDungeon, rate);
+        """,
+        "src/server/game/Entities/Player/Player.cpp": """
+            sScriptMgr->OnPlayerPvPHonor(
+                player, victim, honor, source, context, arena, rated, xp, token);
+        """,
+        "src/server/game/OutdoorPvP/OutdoorPvP.cpp": """
+            sScriptMgr->OnPlayerOutdoorPvPObjective(
+                player, type, objective, entry, tier, team, participants, token);
+        """,
+        "src/server/game/Battlegrounds/Battleground.cpp": """
+            sScriptMgr->OnBattlegroundPlayerScoreUpdate(this, player, type, value);
+        """,
+        "src/server/game/Battlefield/Battlefield.cpp": """
+            sScriptMgr->OnBattlefieldWarStart(this);
+            sScriptMgr->OnBattlefieldObjective(this, player, objective, tier);
+        """,
+        "src/server/game/Scripting/ScriptDefines/PlayerScript.cpp": """
+            CALL_ENABLED_HOOKS(
+                PlayerScript,
+                PLAYERHOOK_ON_REWARD_KILL_REWARDER,
+                script->OnPlayerRewardKillRewarder(player, rewarder, isDungeon, rate));
+            CALL_ENABLED_HOOKS(
+                PlayerScript,
+                PLAYERHOOK_ON_PVP_HONOR,
+                script->OnPlayerPvPHonor(player));
+            CALL_ENABLED_HOOKS(
+                PlayerScript,
+                PLAYERHOOK_ON_OUTDOOR_PVP_OBJECTIVE,
+                script->OnPlayerOutdoorPvPObjective(player));
+        """,
+        "src/server/game/Scripting/ScriptDefines/AllBattlegroundScript.cpp": """
+            CALL_ENABLED_HOOKS(
+                AllBattlegroundScript,
+                ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_PLAYER_SCORE_UPDATE,
+                script->OnBattlegroundPlayerScoreUpdate(bg, player, type, value));
+        """,
+        "src/server/game/Scripting/ScriptDefines/BattlefieldScript.cpp": """
+            CALL_ENABLED_HOOKS(
+                BattlefieldScript,
+                BATTLEFIELDHOOK_ON_WAR_START,
+                script->OnBattlefieldWarStart(bf));
+            CALL_ENABLED_HOOKS(
+                BattlefieldScript,
+                BATTLEFIELDHOOK_ON_OBJECTIVE,
+                script->OnBattlefieldObjective(bf, player, objective, tier));
+        """,
+        "modules/mod-ale/src/ALE_SC.cpp": """
+            class ALE_BGScript : public BGScript
+            {
+            public:
+                ALE_BGScript() : BGScript("ALE_BGScript", {
+                    ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_START,
+                    ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_END_REWARD,
+                    ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_ADD_PLAYER,
+                    ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_REMOVE_PLAYER_AT_LEAVE,
+                    ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_PLAYER_SCORE_UPDATE,
+                    ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_DESTROY
+                }) { }
+
+                void Track(Battleground* bg, Player* player)
+                {
+                    sPvPMeritTracker.OnBattlegroundEndReward(bg, player, TEAM_ALLIANCE);
+                }
+            };
+
+            class ALE_BattlefieldScript : public BattlefieldScript
+            {
+            public:
+                ALE_BattlefieldScript() : BattlefieldScript("ALE_BattlefieldScript", {
+                    BATTLEFIELDHOOK_ON_PLAYER_JOIN_WAR,
+                    BATTLEFIELDHOOK_ON_PLAYER_LEAVE_WAR,
+                    BATTLEFIELDHOOK_ON_WAR_END,
+                    BATTLEFIELDHOOK_ON_PLAYER_KILL,
+                    BATTLEFIELDHOOK_ON_WAR_START,
+                    BATTLEFIELDHOOK_ON_OBJECTIVE
+                }) { }
+
+                void Track(Battlefield* battlefield)
+                {
+                    sPvPMeritTracker.OnBattlefieldWarEnd(battlefield, false);
+                }
+            };
+
+            class ALE_PlayerScript : public PlayerScript
+            {
+            public:
+                ALE_PlayerScript() : PlayerScript("ALE_PlayerScript", {
+                    PLAYERHOOK_ON_GIVE_EXP,
+                    %s
+                    PLAYERHOOK_ON_DUEL_START,
+                    PLAYERHOOK_ON_DUEL_END,
+                    PLAYERHOOK_ON_BATTLEGROUND_DESERTION,
+                    PLAYERHOOK_ON_PVP_HONOR,
+                    PLAYERHOOK_ON_OUTDOOR_PVP_OBJECTIVE,
+                    PLAYERHOOK_ON_REPUTATION_CHANGE,
+                }) { }
+
+                void OnPlayerRewardKillRewarder(Player* player,
+                    KillRewarder* rewarder, bool isDungeon, float& rate) override
+                {
+                    sALE->OnKillReward(player, creature, false, 1, false);
+                }
+
+                void TrackPvP(Player* player)
+                {
+                    sALE->OnPvPHonor(player, victim, honor, source, context,
+                        arena, rated, generatedXP, token);
+                    sALE->OnOutdoorPvPObjective(player, type, objective, entry,
+                        tier, map, zone, team, participants, token);
+                    sPvPMeritTracker.OnDuelEnd(player, opponent, DUEL_WON);
+                }
+            };
+
+            void AddSC_ALE()
+            {
+                new ALE_BattlefieldScript();
+            }
+
+            // A whole-file substring check would accept this decoy even when
+            // the actual enabled-hook list above omits the registration.
+            int decoy = PLAYERHOOK_ON_REWARD_KILL_REWARDER;
+        """ % ("PLAYERHOOK_ON_REWARD_KILL_REWARDER,"
+                 if register_enabled_hook else ""),
+        "modules/mod-ale/src/LuaEngine/Hooks.h": """
+            PLAYER_EVENT_ON_KILL_REWARD = 75,
+            PLAYER_EVENT_ON_PVP_HONOR = 77,
+            PLAYER_EVENT_ON_PVP_MATCH_COMPLETE = 78,
+            PLAYER_EVENT_ON_PVP_BATTLEFIELD_COMPLETE = 79,
+            PLAYER_EVENT_ON_PVP_OUTDOOR_OBJECTIVE = 80,
+            PLAYER_EVENT_ON_PVP_DUEL_COMPLETE = 81,
+        """,
+        "modules/mod-ale/src/LuaEngine/LuaEngine.h": """
+            void OnKillReward(Player* player, Creature* creature);
+            void OnPvPHonor(Player* player);
+            void OnPvPMatchComplete(Player* player);
+            void OnPvPBattlefieldComplete(Player* player);
+            void OnOutdoorPvPObjective(Player* player);
+            void OnPvPDuelComplete(Player* winner, Player* loser);
+        """,
+        "modules/mod-ale/src/LuaEngine/hooks/PlayerHooks.cpp": """
+            void ALE::OnKillReward(Player* player, Creature* creature)
+            {
+                START_HOOK(PLAYER_EVENT_ON_KILL_REWARD);
+            }
+        """,
+        "modules/mod-ale/src/LuaEngine/hooks/PvPMeritHooks.cpp": """
+            START_PVP_HOOK(PLAYER_EVENT_ON_PVP_HONOR);
+            START_PVP_HOOK(PLAYER_EVENT_ON_PVP_MATCH_COMPLETE);
+            START_PVP_HOOK(PLAYER_EVENT_ON_PVP_BATTLEFIELD_COMPLETE);
+            START_PVP_HOOK(PLAYER_EVENT_ON_PVP_OUTDOOR_OBJECTIVE);
+            START_PVP_HOOK(PLAYER_EVENT_ON_PVP_DUEL_COMPLETE);
+        """,
+        "modules/mod-ale/src/PvPMeritTracker.cpp": """
+            sALE->OnPvPMatchComplete(player, settlement);
+            sALE->OnPvPBattlefieldComplete(player, settlement);
+            sALE->OnPvPDuelComplete(winner, loser, type, duration, sameAccount,
+                sameIp, winnerBot, loserBot, token);
+        """,
+        "modules/mod-ale/src/LuaEngine/methods/CreatureMethods.h": """
+            int GetAtLevelXPReward(lua_State* state, Creature* creature)
+            {
+                return 1;
+            }
+        """,
+        "modules/mod-ale/src/LuaEngine/LuaFunctions.cpp": """
+            { "GetAtLevelXPReward", &LuaCreature::GetAtLevelXPReward }
+        """,
+    }
+    for relative_path, source in sources.items():
+        destination = core / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(source, encoding="utf-8")
+
+
 class InstallPipelineTests(unittest.TestCase):
     def test_apply_phase_order_is_an_explicit_contract(self):
         self.assertEqual(
@@ -146,6 +324,7 @@ class InstallPipelineTests(unittest.TestCase):
             output = stdout.getvalue()
             self.assertIn("sql/install.sql", output)
             self.assertIn("paragon_client_patch.py", output)
+            self.assertIn("patched native C++ source contract", output)
             self.assertIn("no changes made", output)
 
     def test_child_environment_preserves_caller_values_and_sets_contract(self):
@@ -202,6 +381,85 @@ class InstallPipelineTests(unittest.TestCase):
     def test_preflight_requires_the_lua52_runtime_not_only_lupa_package(self):
         source = (ROOT / "tools" / "install.py").read_text(encoding="utf-8")
         self.assertIn("import lupa.lua52", source)
+
+    def test_native_source_contract_requires_registered_ale_kill_hook(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            core = pathlib.Path(temporary) / "core"
+            write_native_kill_reward_fixture(core)
+            install.verify_native_source_contract(core)
+
+            write_native_kill_reward_fixture(
+                core, register_enabled_hook=False)
+            with self.assertRaisesRegex(
+                    install.InstallError,
+                    "enabled-hook list does not register "
+                    "PLAYERHOOK_ON_REWARD_KILL_REWARDER"):
+                install.verify_native_source_contract(core)
+
+    def test_native_source_contract_requires_core_and_ale_pvp_bridges(self):
+        cases = (
+            (
+                "src/server/game/Entities/Player/Player.cpp",
+                "sScriptMgr->OnPlayerPvPHonor",
+                "core PvP honor dispatch",
+            ),
+            (
+                "modules/mod-ale/src/LuaEngine/Hooks.h",
+                "PLAYER_EVENT_ON_PVP_DUEL_COMPLETE = 81,",
+                "Lua player event 81 declaration",
+            ),
+            (
+                "modules/mod-ale/src/ALE_SC.cpp",
+                "PLAYERHOOK_ON_PVP_HONOR,",
+                "ALE_PlayerScript enabled-hook list does not register "
+                "PLAYERHOOK_ON_PVP_HONOR",
+            ),
+            (
+                "modules/mod-ale/src/ALE_SC.cpp",
+                "ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_PLAYER_SCORE_UPDATE,",
+                "ALE_BGScript enabled-hook list does not register "
+                "ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_PLAYER_SCORE_UPDATE",
+            ),
+            (
+                "modules/mod-ale/src/ALE_SC.cpp",
+                "BATTLEFIELDHOOK_ON_OBJECTIVE",
+                "ALE_BattlefieldScript enabled-hook list does not register "
+                "BATTLEFIELDHOOK_ON_OBJECTIVE",
+            ),
+        )
+        for relative_path, marker, expected in cases:
+            with self.subTest(marker=marker), \
+                    tempfile.TemporaryDirectory() as temporary:
+                core = pathlib.Path(temporary) / "core"
+                write_native_kill_reward_fixture(core)
+                source_path = core / relative_path
+                source = source_path.read_text(encoding="utf-8")
+                self.assertIn(marker, source)
+                source_path.write_text(
+                    source.replace(marker, "", 1), encoding="utf-8")
+                with self.assertRaisesRegex(install.InstallError, expected):
+                    install.verify_native_source_contract(core)
+
+    def test_preflight_rejects_native_source_before_external_probes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = sample_config(pathlib.Path(temporary))
+            config.extension_source.mkdir(parents=True)
+            (config.client_data / "enUS").mkdir(parents=True)
+            pipeline = install.Pipeline(config)
+            try:
+                with mock.patch.object(
+                        install, "verify_native_source_contract",
+                        side_effect=install.InstallError(
+                            "native source contract failed")) as verify, \
+                        mock.patch("install.subprocess.run") as run:
+                    with self.assertRaisesRegex(
+                            install.InstallError,
+                            "native source contract failed"):
+                        pipeline.preflight(applying=False)
+                verify.assert_called_once_with(config.core_root)
+                run.assert_not_called()
+            finally:
+                pipeline.close()
 
     def test_database_verification_requires_exact_tables_and_triggers(self):
         pipeline = object.__new__(install.Pipeline)

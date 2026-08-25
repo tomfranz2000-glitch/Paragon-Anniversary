@@ -195,7 +195,7 @@ local function ScalarOrNil(sql)
     if not result then
         return nil
     end
-    return tonumber(result:GetUInt64(0)) or 0
+    return tonumber(result:GetString(0)) or 0
 end
 
 local function ProgressionTarget(player)
@@ -302,7 +302,7 @@ local function PayClaim(player, event_token, component)
 
     local source_type = result:GetUInt32(2)
     local source_entry = result:GetUInt32(3)
-    local base_xp = tonumber(result:GetUInt64(4)) or 0
+    local base_xp = tonumber(result:GetString(4)) or 0
     if source_type < SOURCE.PVP_HONOR or source_type > SOURCE.PVP_WINTERGRASP
             or base_xp <= 0 or not EnsureProgressionRow(player) then
         return false
@@ -554,9 +554,9 @@ local function CurrentPeriods()
     if not result then
         return nil, nil
     end
-    local now = tonumber(result:GetUInt64(0)) or 0
-    local daily_next = tonumber(result:GetUInt64(1)) or 0
-    local weekly_next = tonumber(result:GetUInt64(2)) or 0
+    local now = tonumber(result:GetString(0)) or 0
+    local daily_next = tonumber(result:GetString(1)) or 0
+    local weekly_next = tonumber(result:GetString(2)) or 0
     local anchor = ConfigInteger("PARAGON_PVP_RESET_FALLBACK_ANCHOR_UNIX", 0, 0, 4294967295)
     local daily = M.ResolvePeriodKey(now, daily_next, daily_state,
         ConfigInteger("PARAGON_PVP_DAILY_RESET_INTERVAL_SECONDS", 86400, 60, 31536000), anchor)

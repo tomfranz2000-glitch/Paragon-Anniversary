@@ -587,6 +587,15 @@ class ParagonPvPHandlerTests(unittest.TestCase):
                 return tostring(account) .. ":" .. token .. ":" .. component
             end
 
+            function ALEUInt64(value)
+                local rendered = tostring(value)
+                local wrapped = newproxy(true)
+                getmetatable(wrapped).__tostring = function()
+                    return rendered
+                end
+                return wrapped
+            end
+
             local function Result(rows)
                 if #rows == 0 then return nil end
                 local index = 1
@@ -595,7 +604,7 @@ class ParagonPvPHandlerTests(unittest.TestCase):
                         return tonumber(rows[index][column + 1]) or 0
                     end,
                     GetUInt64 = function(_, column)
-                        return tonumber(rows[index][column + 1]) or 0
+                        return ALEUInt64(rows[index][column + 1])
                     end,
                     GetString = function(_, column)
                         local value = rows[index][column + 1]
@@ -1150,6 +1159,27 @@ class ParagonPvPHandlerTests(unittest.TestCase):
             values["same_ip"], values["winner_is_bot"],
             values["loser_is_bot"], token,
         )
+
+    def test_query_uint64_mock_matches_ale_userdata_contract(self):
+        value_type, numeric_value, rendered = self.lua.execute(
+            "local value = ALEUInt64('18446744073709551615'); "
+            "return type(value), tonumber(value), tostring(value)"
+        )
+        self.assertEqual("userdata", value_type)
+        self.assertIsNone(numeric_value)
+        self.assertEqual("18446744073709551615", rendered)
+
+    def test_ale_uint64_query_values_do_not_block_claim_payment(self):
+        player = self.make_player(10, 100, False)
+        victim = self.make_player(20, 200, False)
+        self.fire_honor(player, victim, "ale_uint64")
+
+        claim = self.lua.globals().Claim(10, "ale_uint64", "honor")
+        self.assertEqual(800, claim["base_xp"])
+        self.assertEqual(800, claim["awarded_xp"])
+        self.assertEqual(self.lua.globals().NowEpoch, claim["paid_at"])
+        self.assertEqual([800], [row["base"] for row in self.award_rows()])
+        self.assertEqual(0, self.lua.globals().PendingCount(10))
 
     def test_honor_is_account_wide_and_independent_of_group_or_killing_blow(self):
         first = self.make_player(10, 100, False)

@@ -35,7 +35,8 @@ while the generators execute.
 `tools/install.py` applies the canonical database bootstrap, regenerates all
 server/client data, deploys Lua/ALE extensions and the addon, seeds existing
 collections without retroactive XP, builds the three owned MPQs, and verifies
-the complete payload. `--apply` is rerunnable. `--check` is read-only, while
+the complete payload. Its preflight also verifies the required patched C++
+source in `--core-root`. `--apply` is rerunnable. `--check` is read-only, while
 `--dry-run` prints the exact ordered plan without probing containers, reading
 secrets, writing files, or changing databases. Its checks privately rebuild all
 three MPQs and exactly compare every generator-owned database row, including
@@ -199,6 +200,20 @@ Keep the core patches in exact `01` → `02` → `04` → `08` order and the ALE
 patches in exact `05` → `07` → `09` order. The profession and PvP bridge
 layers depend on the preceding base patches and must not be folded into a
 different sequence.
+
+Both installer modes reject a partial native patch before database or payload
+work begins. In particular, `modules/mod-ale/src/ALE_SC.cpp` must register
+`PLAYERHOOK_ON_REWARD_KILL_REWARDER` inside the `ALE_PlayerScript` enabled-hook
+list. Merely having the override and `OnKillReward` symbols in the source or
+binary does not make the callback reachable. If this preflight fails, reapply
+the documented patches to the pinned checkout and rebuild the worldserver.
+
+The same source preflight follows patches `08` and `09` across the core honor,
+battleground, battlefield, and outdoor-PvP dispatches; the ALE PlayerScript,
+BGScript, and BattlefieldScript enabled-hook lists; and Lua events 77–81. A
+checkout with only the Lua PvP module but a missing native bridge is rejected.
+This is intentionally source-tree validation, not build-image provenance: after
+changing native source, rebuild the worldserver image before running it.
 
 Build the core only after all applicable patches and modules are present. For
 Docker, pass a conservative build width when needed, for example

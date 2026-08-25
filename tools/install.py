@@ -182,11 +182,389 @@ EXPECTED_SQL_COMPONENTS = (
     "sql/05_apply_anniversary_config.sql",
 )
 
+# ``tools/install.py`` does not apply or build native patches.  It does,
+# however, own the deployment contract, so both --apply and --check must reject
+# a checkout in which a required native bridge was only partially applied.
+# Keep these checks structural: seeing an override or a Lua event symbol is not
+# enough when PlayerScript has an explicit enabled-hook list.
+ALE_SCRIPT_RELATIVE_PATH = "modules/mod-ale/src/ALE_SC.cpp"
+NATIVE_SOURCE_CONTRACTS = (
+    (
+        "src/server/game/Entities/Player/KillRewarder.cpp",
+        (
+            (
+                "core kill-reward dispatch",
+                re.compile(
+                    r"\bsScriptMgr\s*->\s*OnPlayerRewardKillRewarder\s*\("),
+            ),
+        ),
+    ),
+    (
+        "src/server/game/Scripting/ScriptDefines/PlayerScript.cpp",
+        (
+            (
+                "enabled PlayerScript kill-reward dispatch",
+                re.compile(
+                    r"\bCALL_ENABLED_HOOKS\s*\(\s*PlayerScript\s*,\s*"
+                    r"PLAYERHOOK_ON_REWARD_KILL_REWARDER\s*,"),
+            ),
+            (
+                "enabled PlayerScript PvP honor dispatch",
+                re.compile(
+                    r"\bCALL_ENABLED_HOOKS\s*\(\s*PlayerScript\s*,\s*"
+                    r"PLAYERHOOK_ON_PVP_HONOR\s*,"),
+            ),
+            (
+                "enabled PlayerScript outdoor-PvP dispatch",
+                re.compile(
+                    r"\bCALL_ENABLED_HOOKS\s*\(\s*PlayerScript\s*,\s*"
+                    r"PLAYERHOOK_ON_OUTDOOR_PVP_OBJECTIVE\s*,"),
+            ),
+        ),
+    ),
+    (
+        "src/server/game/Entities/Player/Player.cpp",
+        (
+            (
+                "core PvP honor dispatch",
+                re.compile(r"\bsScriptMgr\s*->\s*OnPlayerPvPHonor\s*\("),
+            ),
+        ),
+    ),
+    (
+        "src/server/game/OutdoorPvP/OutdoorPvP.cpp",
+        (
+            (
+                "core outdoor-PvP objective dispatch",
+                re.compile(
+                    r"\bsScriptMgr\s*->\s*OnPlayerOutdoorPvPObjective\s*\("),
+            ),
+        ),
+    ),
+    (
+        "src/server/game/Battlegrounds/Battleground.cpp",
+        (
+            (
+                "core battleground score dispatch",
+                re.compile(
+                    r"\bsScriptMgr\s*->\s*OnBattlegroundPlayerScoreUpdate\s*\("),
+            ),
+        ),
+    ),
+    (
+        "src/server/game/Battlefield/Battlefield.cpp",
+        (
+            (
+                "core battlefield start dispatch",
+                re.compile(
+                    r"\bsScriptMgr\s*->\s*OnBattlefieldWarStart\s*\("),
+            ),
+            (
+                "core battlefield objective dispatch",
+                re.compile(
+                    r"\bsScriptMgr\s*->\s*OnBattlefieldObjective\s*\("),
+            ),
+        ),
+    ),
+    (
+        "src/server/game/Scripting/ScriptDefines/AllBattlegroundScript.cpp",
+        (
+            (
+                "enabled battleground score dispatch",
+                re.compile(
+                    r"\bCALL_ENABLED_HOOKS\s*\(\s*AllBattlegroundScript\s*,\s*"
+                    r"ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_PLAYER_SCORE_UPDATE\s*,"),
+            ),
+        ),
+    ),
+    (
+        "src/server/game/Scripting/ScriptDefines/BattlefieldScript.cpp",
+        (
+            (
+                "enabled battlefield start dispatch",
+                re.compile(
+                    r"\bCALL_ENABLED_HOOKS\s*\(\s*BattlefieldScript\s*,\s*"
+                    r"BATTLEFIELDHOOK_ON_WAR_START\s*,"),
+            ),
+            (
+                "enabled battlefield objective dispatch",
+                re.compile(
+                    r"\bCALL_ENABLED_HOOKS\s*\(\s*BattlefieldScript\s*,\s*"
+                    r"BATTLEFIELDHOOK_ON_OBJECTIVE\s*,"),
+            ),
+        ),
+    ),
+    (
+        ALE_SCRIPT_RELATIVE_PATH,
+        (
+            (
+                "ALE kill-reward PlayerScript override",
+                re.compile(
+                    r"\bvoid\s+OnPlayerRewardKillRewarder\s*\([^)]*\)\s*"
+                    r"override"),
+            ),
+            (
+                "ALE-to-Lua kill-reward call",
+                re.compile(r"\bsALE\s*->\s*OnKillReward\s*\("),
+            ),
+            (
+                "ALE-to-Lua PvP honor call",
+                re.compile(r"\bsALE\s*->\s*OnPvPHonor\s*\("),
+            ),
+            (
+                "ALE-to-Lua outdoor-PvP call",
+                re.compile(r"\bsALE\s*->\s*OnOutdoorPvPObjective\s*\("),
+            ),
+            (
+                "PvP battleground settlement tracking",
+                re.compile(
+                    r"\bsPvPMeritTracker\.OnBattlegroundEndReward\s*\("),
+            ),
+            (
+                "PvP battlefield settlement tracking",
+                re.compile(
+                    r"\bsPvPMeritTracker\.OnBattlefieldWarEnd\s*\("),
+            ),
+            (
+                "PvP duel settlement tracking",
+                re.compile(r"\bsPvPMeritTracker\.OnDuelEnd\s*\("),
+            ),
+            (
+                "ALE BattlefieldScript construction",
+                re.compile(r"\bnew\s+ALE_BattlefieldScript\s*\("),
+            ),
+        ),
+    ),
+    (
+        "modules/mod-ale/src/LuaEngine/Hooks.h",
+        (
+            (
+                "Lua player event 75 declaration",
+                re.compile(r"\bPLAYER_EVENT_ON_KILL_REWARD\s*=\s*75\b"),
+            ),
+            (
+                "Lua player event 77 declaration",
+                re.compile(r"\bPLAYER_EVENT_ON_PVP_HONOR\s*=\s*77\b"),
+            ),
+            (
+                "Lua player event 78 declaration",
+                re.compile(
+                    r"\bPLAYER_EVENT_ON_PVP_MATCH_COMPLETE\s*=\s*78\b"),
+            ),
+            (
+                "Lua player event 79 declaration",
+                re.compile(
+                    r"\bPLAYER_EVENT_ON_PVP_BATTLEFIELD_COMPLETE\s*=\s*79\b"),
+            ),
+            (
+                "Lua player event 80 declaration",
+                re.compile(
+                    r"\bPLAYER_EVENT_ON_PVP_OUTDOOR_OBJECTIVE\s*=\s*80\b"),
+            ),
+            (
+                "Lua player event 81 declaration",
+                re.compile(
+                    r"\bPLAYER_EVENT_ON_PVP_DUEL_COMPLETE\s*=\s*81\b"),
+            ),
+        ),
+    ),
+    (
+        "modules/mod-ale/src/LuaEngine/LuaEngine.h",
+        (
+            (
+                "ALE kill-reward declaration",
+                re.compile(r"\bvoid\s+OnKillReward\s*\("),
+            ),
+            (
+                "ALE PvP honor declaration",
+                re.compile(r"\bvoid\s+OnPvPHonor\s*\("),
+            ),
+            (
+                "ALE PvP match declaration",
+                re.compile(r"\bvoid\s+OnPvPMatchComplete\s*\("),
+            ),
+            (
+                "ALE PvP battlefield declaration",
+                re.compile(r"\bvoid\s+OnPvPBattlefieldComplete\s*\("),
+            ),
+            (
+                "ALE outdoor-PvP declaration",
+                re.compile(r"\bvoid\s+OnOutdoorPvPObjective\s*\("),
+            ),
+            (
+                "ALE PvP duel declaration",
+                re.compile(r"\bvoid\s+OnPvPDuelComplete\s*\("),
+            ),
+        ),
+    ),
+    (
+        "modules/mod-ale/src/LuaEngine/hooks/PvPMeritHooks.cpp",
+        tuple(
+            (
+                "Lua PvP event %d emission" % event_id,
+                re.compile(r"\bSTART_PVP_HOOK\s*\(\s*%s\s*\)" % symbol),
+            )
+            for event_id, symbol in (
+                (77, "PLAYER_EVENT_ON_PVP_HONOR"),
+                (78, "PLAYER_EVENT_ON_PVP_MATCH_COMPLETE"),
+                (79, "PLAYER_EVENT_ON_PVP_BATTLEFIELD_COMPLETE"),
+                (80, "PLAYER_EVENT_ON_PVP_OUTDOOR_OBJECTIVE"),
+                (81, "PLAYER_EVENT_ON_PVP_DUEL_COMPLETE"),
+            )
+        ),
+    ),
+    (
+        "modules/mod-ale/src/PvPMeritTracker.cpp",
+        (
+            (
+                "PvP match settlement emission",
+                re.compile(r"\bsALE\s*->\s*OnPvPMatchComplete\s*\("),
+            ),
+            (
+                "PvP battlefield settlement emission",
+                re.compile(r"\bsALE\s*->\s*OnPvPBattlefieldComplete\s*\("),
+            ),
+            (
+                "PvP duel settlement emission",
+                re.compile(r"\bsALE\s*->\s*OnPvPDuelComplete\s*\("),
+            ),
+        ),
+    ),
+    (
+        "modules/mod-ale/src/LuaEngine/hooks/PlayerHooks.cpp",
+        (
+            (
+                "Lua event 75 emission",
+                re.compile(
+                    r"\bvoid\s+ALE::OnKillReward\s*\([^)]*\)\s*\{.*?"
+                    r"\bSTART_HOOK\s*\(\s*PLAYER_EVENT_ON_KILL_REWARD\s*\)",
+                    re.DOTALL),
+            ),
+        ),
+    ),
+    (
+        "modules/mod-ale/src/LuaEngine/methods/CreatureMethods.h",
+        (
+            (
+                "at-level creature XP implementation",
+                re.compile(r"\bint\s+GetAtLevelXPReward\s*\("),
+            ),
+        ),
+    ),
+    (
+        "modules/mod-ale/src/LuaEngine/LuaFunctions.cpp",
+        (
+            (
+                "at-level creature XP Lua registration",
+                re.compile(
+                    r"\{\s*\"GetAtLevelXPReward\"\s*,\s*"
+                    r"&LuaCreature::GetAtLevelXPReward\s*\}"),
+            ),
+        ),
+    ),
+)
+
+CPP_COMMENT_PATTERN = re.compile(r"//[^\r\n]*|/\*.*?\*/", re.DOTALL)
+ALE_ENABLED_HOOK_LIST_CONTRACTS = (
+    (
+        "ALE_PlayerScript",
+        "PlayerScript",
+        (
+            "PLAYERHOOK_ON_REWARD_KILL_REWARDER",
+            "PLAYERHOOK_ON_DUEL_START",
+            "PLAYERHOOK_ON_DUEL_END",
+            "PLAYERHOOK_ON_BATTLEGROUND_DESERTION",
+            "PLAYERHOOK_ON_PVP_HONOR",
+            "PLAYERHOOK_ON_OUTDOOR_PVP_OBJECTIVE",
+        ),
+    ),
+    (
+        "ALE_BGScript",
+        "BGScript",
+        (
+            "ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_START",
+            "ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_END_REWARD",
+            "ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_ADD_PLAYER",
+            "ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_REMOVE_PLAYER_AT_LEAVE",
+            "ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_PLAYER_SCORE_UPDATE",
+            "ALLBATTLEGROUNDHOOK_ON_BATTLEGROUND_DESTROY",
+        ),
+    ),
+    (
+        "ALE_BattlefieldScript",
+        "BattlefieldScript",
+        (
+            "BATTLEFIELDHOOK_ON_PLAYER_JOIN_WAR",
+            "BATTLEFIELDHOOK_ON_PLAYER_LEAVE_WAR",
+            "BATTLEFIELDHOOK_ON_WAR_END",
+            "BATTLEFIELDHOOK_ON_PLAYER_KILL",
+            "BATTLEFIELDHOOK_ON_WAR_START",
+            "BATTLEFIELDHOOK_ON_OBJECTIVE",
+        ),
+    ),
+)
+
 SOURCE_PATTERN = re.compile(r"^\s*SOURCE\s+(.+?)\s*;\s*$", re.IGNORECASE)
 
 
 class InstallError(RuntimeError):
     """An actionable installation-contract failure."""
+
+
+def verify_native_source_contract(core_root: pathlib.Path) -> None:
+    """Reject missing/partial native bridges in the selected core checkout.
+
+    Patch text is only an instruction.  This verifies the source that will
+    actually be built, including the enabled-hook registrations that make the
+    otherwise-present ALE kill-reward and PvP overrides reachable.
+    """
+    sources: Dict[str, str] = {}
+    failures = []
+    for relative_path, requirements in NATIVE_SOURCE_CONTRACTS:
+        source_path = core_root / relative_path
+        try:
+            source = source_path.read_text(encoding="utf-8")
+        except OSError as error:
+            failures.append("missing/unreadable %s: %s" %
+                            (relative_path, error))
+            continue
+        source = CPP_COMMENT_PATTERN.sub("", source)
+        sources[relative_path] = source
+        for label, pattern in requirements:
+            if pattern.search(source) is None:
+                failures.append("%s lacks %s" % (relative_path, label))
+
+    ale_source = sources.get(ALE_SCRIPT_RELATIVE_PATH)
+    if ale_source is not None:
+        for class_name, base_class, required_hooks in \
+                ALE_ENABLED_HOOK_LIST_CONTRACTS:
+            constructor_pattern = re.compile(
+                r"\b%s\s*\(\s*\)\s*:\s*%s\s*\(\s*\"%s\"\s*,\s*"
+                r"\{(?P<hooks>.*?)\}\s*\)" % (
+                    re.escape(class_name), re.escape(base_class),
+                    re.escape(class_name)),
+                re.DOTALL)
+            constructor = constructor_pattern.search(ale_source)
+            if constructor is None:
+                failures.append(
+                    "%s lacks the %s enabled-hook list" %
+                    (ALE_SCRIPT_RELATIVE_PATH, class_name))
+                continue
+            hooks = constructor.group("hooks")
+            for hook in required_hooks:
+                if re.search(r"\b%s\b" % re.escape(hook), hooks) is None:
+                    failures.append(
+                        "%s %s enabled-hook list does not register %s" %
+                        (ALE_SCRIPT_RELATIVE_PATH, class_name, hook))
+
+    if failures:
+        raise InstallError(
+            "patched native source contract is incomplete under %s:\n  - %s\n"
+            "Apply the documented patches in order (especially "
+            "patches/05-mod-ale.patch, patches/08-core-pvp-merit.patch, and "
+            "patches/09-mod-ale-pvp-merit.patch), rebuild the worldserver, "
+            "and rerun the installer." %
+            (core_root, "\n  - ".join(failures)))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -479,7 +857,11 @@ def plan_lines(config: Config) -> List[str]:
     lines = []
     for number, phase in enumerate(APPLY_PHASES, 1):
         lines.append("%02d. %s" % (number, phase))
-        if phase == "repository-tests":
+        if phase == "preflight":
+            lines.append(
+                "    verify patched native C++ source contract under %s" %
+                config.core_root)
+        elif phase == "repository-tests":
             lines.append("    " + _display_command(next(commands)))
         elif phase == "database-bootstrap":
             lines.append("    apply %s via %s" %
@@ -613,6 +995,7 @@ class Pipeline:
             missing.append("active DBC directory: %s" % self.config.dbc_dir)
         if missing:
             raise InstallError("missing prerequisites:\n  " + "\n  ".join(missing))
+        verify_native_source_contract(self.config.core_root)
         try:
             dependency_probe = subprocess.run(
                 (self.config.python, "-c",
