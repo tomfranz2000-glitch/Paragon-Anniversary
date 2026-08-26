@@ -267,6 +267,32 @@ class ParagonKillXPTests(unittest.TestCase):
             self.compute(80, 72, 1000, 5, False, wotlk_heroic),
         )
 
+    def test_instance_share_receives_personal_bonus_once_at_mediator_boundary(self):
+        wotlk_heroic = self.make_map(2, True, False, True)
+        share = self.compute(80, 72, 1000, 5, False, wotlk_heroic)
+        self.assertEqual(420, share)
+
+        self.lua.execute(
+            """
+            function RegisterPlayerEvent(_, _) end
+            ParagonMountSpells = {}
+            ParagonCompanionSpells = {}
+            ParagonCodex_ExperiencePercent = function(_) return 10 end
+            PersonalBonusParagon = { GetLevel = function(_) return 1 end }
+            """
+        )
+        with open(COLLECTION_XP, encoding="utf-8") as handle:
+            self.lua.execute(handle.read())
+
+        handler = self.lua.globals().mediator_handlers["OnExperienceCalculated"]
+        result = handler(
+            self.lua.globals().MakePlayer(80, None),
+            self.lua.globals().PersonalBonusParagon,
+            1,
+            share,
+        )
+        self.assertEqual(462, result[1])
+
 
 @unittest.skipUnless(LuaRuntime, "lupa.lua52 is required for Lua behavior tests")
 class ParagonPersonalBonusTests(unittest.TestCase):

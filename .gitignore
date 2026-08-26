@@ -5,6 +5,10 @@ tools/stage-locale/
 __pycache__/
 *.pyc
 
+# Reproducible release artifacts; build from a committed ref with the tracked
+# builder and publish the ZIP/checksum rather than checking binaries into Git.
+dist/
+
 # Generated, and regenerable from the tools above
 tools/generated/collectible_xp_review.csv
 tools/generated/class_track.lua

@@ -199,6 +199,40 @@ including missing ALE enabled-hook registrations and incomplete PvP Merit
 events 77–81. This validates the selected checkout; rebuild the server after
 patching because it does not establish which source produced an existing image.
 
+### Versioned instance-XP upgrade
+
+Servers on Paragon commit `05ea122dc80b6a08ba01a6f0506523a13cdbe1c2`
+can use the focused `instance-xp-v1` release package instead of rerunning the
+full client-aware installer. It patches the already-installed ALE source,
+builds and force-recreates only worldserver, migrates only the five new
+instance-XP settings, validates and atomically replaces only the changed
+server Lua module, and keeps durable rollback material. Other generated or
+locally customized Lua files are preserved. It never accepts or writes a
+client path.
+
+Package operators should follow
+[`upgrades/instance-xp-v1/README.md`](upgrades/instance-xp-v1/README.md).
+Maintainers produce the deterministic ZIP only from a clean, published `main`:
+
+```bash
+python tools/build_instance_xp_upgrade.py --ref <release-tag> --output-dir dist
+```
+
+The builder reads the single deployable Lua file and native payloads from the
+resolved Git commit rather than the checkout. It rejects any baseline-to-target
+runtime change outside the focal Lua, patch 05, and the two configuration SQL
+files because the focused installer would not deploy it. Template and archive
+contents use exact allowlists, with client assets and secret-like paths
+refused. The resulting uncompressed ZIP is byte-identical across supported
+hosts and includes full release metadata and internal per-file SHA-256
+checksums. An adjacent `<archive>.zip.sha256` verifies the complete ZIP before
+extraction; publish the ZIP and its sidecar together.
+
+The cumulative ALE patches are included only as checksummed dependency
+provenance. This focused package applies its separate incremental ALE delta to
+an existing `05ea122` installation; it is not a fresh-install kit, and it never
+reapplies a cumulative patch.
+
 To validate the repository without deploying, install `requirements.txt` and
 run `python -m unittest discover -s tools -p "test_*.py"`. The complete
 installer runs this same suite before it changes external state.

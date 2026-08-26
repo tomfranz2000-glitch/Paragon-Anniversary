@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "release": "instance-xp-v1",
+  "from_paragon_commit": "05ea122dc80b6a08ba01a6f0506523a13cdbe1c2",
+  "ale_base_commit": "9e5b8c66efeb383871ec58b925e47094c92cc8d5",
+  "lua_payload": "server/serverside/paragon/modules/paragon_rework_sources.lua",
+  "incremental_ale_patch": "native/mod-ale-instance-xp.patch",
+  "sql_migration": "sql/instance-xp.sql",
+  "config": {
+    "PARAGON_CREATURE_XP_TBC_HEROIC_DUNGEON_MULTIPLIER": "1.25",
+    "PARAGON_CREATURE_XP_WOTLK_HEROIC_DUNGEON_MULTIPLIER": "1.5",
+    "PARAGON_CREATURE_XP_TBC_RAID_MULTIPLIER": "2",
+    "PARAGON_CREATURE_XP_WOTLK_NORMAL_RAID_MULTIPLIER": "2.5",
+    "PARAGON_CREATURE_XP_WOTLK_HEROIC_RAID_MULTIPLIER": "4"
+  }
+}

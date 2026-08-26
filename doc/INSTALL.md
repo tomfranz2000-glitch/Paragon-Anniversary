@@ -631,6 +631,20 @@ Back up the three AzerothCore databases plus `acore_ale`, update Paragon's
 `main` branch and the pinned patches together, and restore `mod-transmog` to
 `31633595cad7b12042b6484ffe3ea34f355b9821`.
 
+The `instance-xp-v1` GitHub release is a narrower supported path only for a
+server already running Paragon commit
+`05ea122dc80b6a08ba01a6f0506523a13cdbe1c2`. Its self-contained installer
+adds the heroic-dungeon/raid creature-XP factors without touching client
+files or rewriting unrelated generated data. Run its read-only plan and then
+its apply command exactly as documented in
+[`upgrades/instance-xp-v1/README.md`](../upgrades/instance-xp-v1/README.md).
+It recognizes prior, target, partial, and unknown ALE source states and refuses
+ambiguous transitions. Do not reapply the enlarged cumulative patch 05 over
+an existing installation; the package carries a dedicated incremental delta.
+
+For every other starting revision or for a full-suite upgrade, use the
+canonical procedure below.
+
 Use this order for an in-place Docker upgrade:
 
 1. Back up `acore_auth`, `acore_characters`, `acore_world`, `acore_playerbots`,
