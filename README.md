@@ -265,6 +265,16 @@ remains durable and can be paid after the system is enabled again.
 | `UNIVERSAL_QUEST_EXPERIENCE` | Fallback XP for quest completion | `1` |
 | `PARAGON_ACHIEVEMENT_POINT_XP` | Exact XP awarded per achievement point | `2000` |
 | `PARAGON_GROUP_XP_DISTANCE` | Maximum distance for party kill-XP sharing | `74` |
+| `PARAGON_CREATURE_XP_TBC_HEROIC_DUNGEON_MULTIPLIER` | TBC heroic-dungeon monster XP factor | `1.25` |
+| `PARAGON_CREATURE_XP_WOTLK_HEROIC_DUNGEON_MULTIPLIER` | WotLK heroic-dungeon monster XP factor | `1.5` |
+| `PARAGON_CREATURE_XP_TBC_RAID_MULTIPLIER` | TBC raid monster XP factor | `2` |
+| `PARAGON_CREATURE_XP_WOTLK_NORMAL_RAID_MULTIPLIER` | WotLK normal-raid monster XP factor | `2.5` |
+| `PARAGON_CREATURE_XP_WOTLK_HEROIC_RAID_MULTIPLIER` | WotLK heroic-raid monster XP factor | `4` |
+
+Instance factors scale the creature's native at-level XP pool before the gray
+penalty and group share. They do not affect quests, PvP, professions, or
+one-time rewards. TBC raids use one `2×` rule because TBC has no heroic raid
+difficulty.
 
 One-time rewards are stored at their final values: a profession high-water
 point and an ordinary appearance pay 2,000 XP, a 10-point achievement pays

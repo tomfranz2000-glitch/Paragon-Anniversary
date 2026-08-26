@@ -452,6 +452,18 @@ NATIVE_SOURCE_CONTRACTS = (
         ),
     ),
     (
+        "modules/mod-ale/src/LuaEngine/methods/MapMethods.h",
+        (
+            (
+                "map expansion implementation",
+                re.compile(
+                    r"\bint\s+GetExpansion\s*\([^)]*\)\s*\{.*?"
+                    r"\bGetEntry\s*\(\s*\)\s*->\s*Expansion\s*\(\s*\)",
+                    re.DOTALL),
+            ),
+        ),
+    ),
+    (
         "modules/mod-ale/src/LuaEngine/LuaFunctions.cpp",
         (
             (
@@ -459,6 +471,12 @@ NATIVE_SOURCE_CONTRACTS = (
                 re.compile(
                     r"\{\s*\"GetAtLevelXPReward\"\s*,\s*"
                     r"&LuaCreature::GetAtLevelXPReward\s*\}"),
+            ),
+            (
+                "map expansion Lua registration",
+                re.compile(
+                    r"\{\s*\"GetExpansion\"\s*,\s*"
+                    r"&LuaMap::GetExpansion\s*\}"),
             ),
         ),
     ),
@@ -1388,11 +1406,21 @@ class Pipeline:
 
         sql = (
             "SELECT "
-            "(SELECT COUNT(*) >= 83 FROM acore_ale.paragon_config),"
+            "(SELECT COUNT(*) >= 88 FROM acore_ale.paragon_config),"
             "(SELECT value = '2000' FROM acore_ale.paragon_config "
             " WHERE field='UNIVERSAL_SKILL_EXPERIENCE'),"
             "(SELECT value = '2000' FROM acore_ale.paragon_config "
             " WHERE field='PARAGON_ACHIEVEMENT_POINT_XP'),"
+            "(SELECT value = '1.25' FROM acore_ale.paragon_config "
+            " WHERE field='PARAGON_CREATURE_XP_TBC_HEROIC_DUNGEON_MULTIPLIER'),"
+            "(SELECT value = '1.5' FROM acore_ale.paragon_config "
+            " WHERE field='PARAGON_CREATURE_XP_WOTLK_HEROIC_DUNGEON_MULTIPLIER'),"
+            "(SELECT value = '2' FROM acore_ale.paragon_config "
+            " WHERE field='PARAGON_CREATURE_XP_TBC_RAID_MULTIPLIER'),"
+            "(SELECT value = '2.5' FROM acore_ale.paragon_config "
+            " WHERE field='PARAGON_CREATURE_XP_WOTLK_NORMAL_RAID_MULTIPLIER'),"
+            "(SELECT value = '4' FROM acore_ale.paragon_config "
+            " WHERE field='PARAGON_CREATURE_XP_WOTLK_HEROIC_RAID_MULTIPLIER'),"
             "(SELECT COUNT(*) = 0 FROM acore_ale.paragon_config "
             " WHERE field='PARAGON_ONE_TIME_XP_MULTIPLIER'),"
             "(SELECT COUNT(*) > 0 FROM acore_ale.paragon_collectible_spell_xp),"
@@ -1451,9 +1479,9 @@ class Pipeline:
             " AND character_maximum_length=32);")
         output = self._mysql(sql, capture=True).strip().splitlines()
         values = output[-1].split("\t") if output else []
-        if values != ["1"] * 18:
+        if values != ["1"] * 23:
             raise InstallError(
-                "database verification failed (config, direct one-time XP, "
+                "database verification failed (config, instance creature XP, direct one-time XP, "
                 "collection/quest rows, content, achievements, profession "
                 "progress, PvP Merit, categories, statistics, or type_value schema is "
                 "incomplete): %s" % (values or "no output"))

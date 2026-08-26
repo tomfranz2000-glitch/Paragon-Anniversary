@@ -28,6 +28,11 @@ INSERT IGNORE INTO `acore_ale`.`paragon_config` (field, value) VALUES
 ('UNIVERSAL_QUEST_EXPERIENCE', '1'),
 ('PARAGON_ACHIEVEMENT_POINT_XP', '2000'),
 ('PARAGON_GROUP_XP_DISTANCE', '74'),
+('PARAGON_CREATURE_XP_TBC_HEROIC_DUNGEON_MULTIPLIER', '1.25'),
+('PARAGON_CREATURE_XP_WOTLK_HEROIC_DUNGEON_MULTIPLIER', '1.5'),
+('PARAGON_CREATURE_XP_TBC_RAID_MULTIPLIER', '2'),
+('PARAGON_CREATURE_XP_WOTLK_NORMAL_RAID_MULTIPLIER', '2.5'),
+('PARAGON_CREATURE_XP_WOTLK_HEROIC_RAID_MULTIPLIER', '4'),
 
 -- PvP Merit: all values below are authoritative base values. Repeatable PvP
 -- awards cross the normal personal Paragon XP modifier boundary exactly once.

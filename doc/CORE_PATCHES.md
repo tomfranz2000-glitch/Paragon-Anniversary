@@ -752,7 +752,8 @@ percent only, so +0.25%/clear applies as floor(clears / 4) whole percent
 
 **Files:** `modules/mod-ale/src/ALE_SC.cpp`, `LuaEngine/Hooks.h`,
 `LuaEngine.h`, `hooks/PlayerHooks.cpp`, `methods/CreatureMethods.h`,
-`methods/GlobalMethods.h`, and `LuaFunctions.cpp`. Rebuild required.
+`methods/MapMethods.h`, `methods/GlobalMethods.h`, and `LuaFunctions.cpp`.
+Rebuild required.
 
 ALE player event **75** (`PLAYER_EVENT_ON_KILL_REWARD`) forwards the core's
 `PlayerScript::OnPlayerRewardKillRewarder` once per credited recipient as
@@ -775,6 +776,14 @@ adjustment. It includes map content tier, elite status, `ExperienceModifier`,
 `HealthModifier`, `Rate.XP.Kill`, partial player-damage scaling, and native
 pet/totem/critter/no-XP exclusions. Player-specific ordinary-XP auras are not
 included; the recipient's Paragon XP factor is applied later in Lua.
+
+`Map:GetExpansion()` exposes the map's authoritative `Map.dbc` expansion ID
+(0 Classic, 1 TBC, 2 WotLK). Lua combines that value with `Map:IsRaid()` and
+`Map:IsHeroic()` to select one instance creature-XP factor before gray and
+group-share math. Raid classification is map-based and precedes dungeon
+classification because AzerothCore considers raids to be dungeons too.
+Lua carries one audited era correction: map 249 (level-80 Onyxia) is treated
+as WotLK because the reused 3.3.5 Map.dbc row still reports expansion 0.
 
 The Lua consumer is `paragon_rework_party.lua`; it routes every event-75 award
 through `paragon_hook.lua`'s complete mediator/state-sync path. Creature XP

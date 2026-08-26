@@ -201,8 +201,15 @@ def write_native_kill_reward_fixture(core, register_enabled_hook=True):
                 return 1;
             }
         """,
+        "modules/mod-ale/src/LuaEngine/methods/MapMethods.h": """
+            int GetExpansion(lua_State* state, Map* map)
+            {
+                return map->GetEntry()->Expansion();
+            }
+        """,
         "modules/mod-ale/src/LuaEngine/LuaFunctions.cpp": """
             { "GetAtLevelXPReward", &LuaCreature::GetAtLevelXPReward }
+            { "GetExpansion", &LuaMap::GetExpansion }
         """,
     }
     for relative_path, source in sources.items():
@@ -440,6 +447,32 @@ class InstallPipelineTests(unittest.TestCase):
                 with self.assertRaisesRegex(install.InstallError, expected):
                     install.verify_native_source_contract(core)
 
+    def test_native_source_contract_requires_map_expansion_api(self):
+        cases = (
+            (
+                "modules/mod-ale/src/LuaEngine/methods/MapMethods.h",
+                "GetEntry()->Expansion()",
+                "map expansion implementation",
+            ),
+            (
+                "modules/mod-ale/src/LuaEngine/LuaFunctions.cpp",
+                '{ "GetExpansion", &LuaMap::GetExpansion }',
+                "map expansion Lua registration",
+            ),
+        )
+        for relative_path, marker, expected in cases:
+            with self.subTest(marker=marker), \
+                    tempfile.TemporaryDirectory() as temporary:
+                core = pathlib.Path(temporary) / "core"
+                write_native_kill_reward_fixture(core)
+                source_path = core / relative_path
+                source = source_path.read_text(encoding="utf-8")
+                self.assertIn(marker, source)
+                source_path.write_text(
+                    source.replace(marker, "", 1), encoding="utf-8")
+                with self.assertRaisesRegex(install.InstallError, expected):
+                    install.verify_native_source_contract(core)
+
     def test_preflight_rejects_native_source_before_external_probes(self):
         with tempfile.TemporaryDirectory() as temporary:
             config = sample_config(pathlib.Path(temporary))
@@ -464,7 +497,7 @@ class InstallPipelineTests(unittest.TestCase):
     def test_database_verification_requires_exact_tables_and_triggers(self):
         pipeline = object.__new__(install.Pipeline)
         pipeline.verify_canonical_world_content = mock.Mock()
-        content_ok = "\t".join(["1"] * 18) + "\n"
+        content_ok = "\t".join(["1"] * 23) + "\n"
         pipeline._mysql = mock.Mock(side_effect=(
             "\n".join(reversed(install.REQUIRED_ALE_TABLES)) + "\n",
             "\n".join(reversed(install.REQUIRED_ALE_TRIGGERS)) + "\n",

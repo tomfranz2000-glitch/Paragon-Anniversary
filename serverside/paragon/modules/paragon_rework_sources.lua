@@ -5,7 +5,8 @@
     Replaces the flat universal XP values with content-worth values:
       - Creatures: the core-equivalent at-level reward (including creature
         template, health, elite, no-XP and realm-rate modifiers), split using
-        the participating group size before Paragon eligibility is applied.
+        the participating group size before Paragon eligibility is applied;
+        heroic dungeons and raids receive explicit expansion/content factors.
       - Quests: the quest's own at-level XP (quest_template.RewardXPDifficulty
         indexed into the client's QuestXP table).
       - Achievements: achievement points x PARAGON_ACHIEVEMENT_POINT_XP.
@@ -50,6 +51,93 @@ end
 --- player in a five-member party still receives 1.4 / 5 = 28%.
 local GROUP_BONUS = { [3] = 1.166, [4] = 1.3 }
 local missing_xp_api_reported = false
+local missing_map_expansion_api_reported = false
+
+local INSTANCE_CREATURE_XP = {
+    tbc_heroic_dungeon = {
+        field = "PARAGON_CREATURE_XP_TBC_HEROIC_DUNGEON_MULTIPLIER",
+        default = 1.25,
+    },
+    wotlk_heroic_dungeon = {
+        field = "PARAGON_CREATURE_XP_WOTLK_HEROIC_DUNGEON_MULTIPLIER",
+        default = 1.5,
+    },
+    tbc_raid = {
+        field = "PARAGON_CREATURE_XP_TBC_RAID_MULTIPLIER",
+        default = 2.0,
+    },
+    wotlk_normal_raid = {
+        field = "PARAGON_CREATURE_XP_WOTLK_NORMAL_RAID_MULTIPLIER",
+        default = 2.5,
+    },
+    wotlk_heroic_raid = {
+        field = "PARAGON_CREATURE_XP_WOTLK_HEROIC_RAID_MULTIPLIER",
+        default = 4.0,
+    },
+}
+
+-- 3.3.5 ships only the level-80 Onyxia raid, but Map.dbc still labels its
+-- reused Classic map as expansion 0. Every other TBC/WotLK raid map carries
+-- the correct expansion, so keep this as a narrow, audited exception.
+local RAID_EXPANSION_OVERRIDE = {
+    [249] = 2, -- Onyxia's Lair
+}
+
+local function ConfigPositiveFinite(field, fallback)
+    local value = tonumber(Config:GetByField(field))
+    if not value or value <= 0 or value ~= value
+        or value == math.huge or value == -math.huge then
+        return fallback
+    end
+    return value
+end
+
+local function ConfiguredInstanceMultiplier(key)
+    local setting = INSTANCE_CREATURE_XP[key]
+    return ConfigPositiveFinite(setting.field, setting.default)
+end
+
+--- Context multiplier for the creature's actual instance. Raid classification
+--- must precede dungeon classification because AzerothCore reports raids as
+--- dungeons too. Event 75's is_raid argument is deliberately not used here:
+--- it describes the recipient's group-share mode, not the map's content type.
+local function InstanceCreatureXPMultiplier(creature)
+    local map = creature:GetMap()
+    if not map or not map:IsDungeon() then
+        return 1.0
+    end
+
+    if not map.GetExpansion then
+        if not missing_map_expansion_api_reported then
+            print("[Paragon] Map:GetExpansion missing; instance creature XP multipliers disabled until the ALE patch is installed")
+            missing_map_expansion_api_reported = true
+        end
+        return 1.0
+    end
+
+    local expansion = tonumber(map:GetExpansion())
+    if map:IsRaid() then
+        expansion = RAID_EXPANSION_OVERRIDE[map:GetMapId()] or expansion
+        if expansion == 1 then
+            return ConfiguredInstanceMultiplier("tbc_raid")
+        elseif expansion == 2 then
+            if map:IsHeroic() then
+                return ConfiguredInstanceMultiplier("wotlk_heroic_raid")
+            end
+            return ConfiguredInstanceMultiplier("wotlk_normal_raid")
+        end
+        return 1.0
+    end
+
+    if map:IsHeroic() then
+        if expansion == 1 then
+            return ConfiguredInstanceMultiplier("tbc_heroic_dungeon")
+        elseif expansion == 2 then
+            return ConfiguredInstanceMultiplier("wotlk_heroic_dungeon")
+        end
+    end
+    return 1.0
+end
 
 local function StandardGroupShare(participant_count, is_raid)
     participant_count = tonumber(participant_count) or 0
@@ -176,6 +264,11 @@ function ParagonRework_ComputeKillShare(recipient, creature, participant_count, 
     if pool <= 0 then
         return 0
     end
+
+    -- Content difficulty scales the native at-level pool. Keep this before
+    -- both the recipient-specific gray rule and native group sharing, with no
+    -- intermediate floor, so every member receives the same contextual pool.
+    pool = pool * InstanceCreatureXPMultiplier(creature)
 
     -- Custom Paragon boundary: mobs zero through nine levels below the
     -- recipient pay in full; ten or more levels below pay half.

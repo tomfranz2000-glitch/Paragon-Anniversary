@@ -43,6 +43,40 @@ Formula (matches the core's own base-XP math):
 - Creature override rows do not replace this value. This prevents low-health
   trash creatures from receiving a generic, inflated elite reward.
 
+#### Instance difficulty and era scaling
+
+The native at-level monster pool receives one content-context factor:
+
+| Content | Factor |
+|---|---:|
+| World content and normal five-player dungeons | 1.00× |
+| TBC heroic dungeon | 1.25× |
+| WotLK heroic dungeon | 1.50× |
+| TBC raid | 2.00× |
+| WotLK normal raid | 2.50× |
+| WotLK heroic raid | 4.00× |
+
+TBC raids have a single factor because the expansion has no heroic raid mode.
+For WotLK, heroic means an actual heroic map difficulty (10H/25H); a 25-player
+normal raid is still normal, and Ulduar encounter hard modes remain under the
+2.50× normal-raid rule because they do not change map difficulty.
+The only era override is map 249, Onyxia's Lair: 3.3.5 contains its level-80
+WotLK raid but retains expansion 0 on the reused Map.dbc row, so it is treated
+as a WotLK normal raid and receives 2.50×.
+
+The complete ordering is:
+
+```text
+native at-level monster XP
+× instance content factor
+× gray factor
+× group share
+→ truncate once
+× personal Paragon XP modifiers
+```
+
+The factor cannot create XP for a creature whose native reward is zero.
+
 ### Quests — at-level value
 
 A quest grants its own at-level XP value (from `quest_template` reward XP at the
@@ -175,9 +209,10 @@ own growth instead.
   noticeably; by the deep hundreds growth is nearly flat — an endless but
   honest tail.
 
-Projected shape (base = 30,000, r₀ = 0.0429, k = 20; income assumption
-~400k XP/hour of
-dedicated endgame play — heroic clears + dailies at the values above):
+Projected shape (base = 30,000, r₀ = 0.0429, k = 20; illustrative income
+assumption ~400k XP/hour of dedicated endgame play). This is a curve example,
+not a post-instance-multiplier income forecast; live dungeon and raid
+XP-per-hour should be measured before retuning it:
 
 | Paragon level | Cost of that level | Total XP to reach | ≈ Hours |
 |---|---|---|---|
@@ -232,7 +267,7 @@ PvP Merit additionally requires `patches/08-core-pvp-merit.patch` and
 
 | Piece | Mechanism |
 |---|---|
-| At-level creature/quest values | ALE `Creature:GetAtLevelXPReward()` for kills; generated QuestXP data for quests |
+| At-level creature/quest values | ALE `Creature:GetAtLevelXPReward()` plus `Map:GetExpansion()` for instance-scaled kills; generated QuestXP data for quests |
 | Achievement points scaling | `OnBeforeUpdatePlayerExperience` for achievement source |
 | Level-80 gate | existing `MINIMUM_LEVEL_FOR_PARAGON_XP` config |
 | Achievement banking | `banked_experience` column on the paragon character table; achievement hook accrues to it below 80; level-80 event pays it out through the normal XP pipeline |

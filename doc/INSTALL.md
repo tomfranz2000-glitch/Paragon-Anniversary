@@ -253,10 +253,15 @@ Verify the preset before continuing:
 ```sql
 SELECT COUNT(*) FROM acore_ale.paragon_config;
 SELECT field, value FROM acore_ale.paragon_config
-WHERE field IN ('BASE_MAX_EXPERIENCE', 'MINIMUM_LEVEL_FOR_PARAGON_XP');
+WHERE field IN (
+  'BASE_MAX_EXPERIENCE',
+  'MINIMUM_LEVEL_FOR_PARAGON_XP',
+  'PARAGON_CREATURE_XP_TBC_RAID_MULTIPLIER',
+  'PARAGON_CREATURE_XP_WOTLK_HEROIC_RAID_MULTIPLIER'
+);
 ```
 
-The Anniversary preset contains at least 83 settings, starts at 30,000 XP,
+The Anniversary preset contains at least 88 settings, starts at 30,000 XP,
 and permits Paragon XP only from character level 80.
 
 ## 4. Generate profession data and install server Lua
@@ -514,6 +519,16 @@ WHERE field = 'UNIVERSAL_SKILL_EXPERIENCE';
 SELECT value AS achievement_xp_per_point
 FROM acore_ale.paragon_config
 WHERE field = 'PARAGON_ACHIEVEMENT_POINT_XP';
+SELECT field, value AS instance_creature_xp_multiplier
+FROM acore_ale.paragon_config
+WHERE field IN (
+  'PARAGON_CREATURE_XP_TBC_HEROIC_DUNGEON_MULTIPLIER',
+  'PARAGON_CREATURE_XP_WOTLK_HEROIC_DUNGEON_MULTIPLIER',
+  'PARAGON_CREATURE_XP_TBC_RAID_MULTIPLIER',
+  'PARAGON_CREATURE_XP_WOTLK_NORMAL_RAID_MULTIPLIER',
+  'PARAGON_CREATURE_XP_WOTLK_HEROIC_RAID_MULTIPLIER'
+)
+ORDER BY field;
 SELECT COUNT(*) AS obsolete_runtime_multiplier
 FROM acore_ale.paragon_config
 WHERE field = 'PARAGON_ONE_TIME_XP_MULTIPLIER';
@@ -540,7 +555,10 @@ rows must be present on a fresh host. The solo-achievement query must report
 96 rows and 1,045 total points; Paragon reads those authoritative world rows
 for custom achievement XP. `profession_xp_per_point` and
 `achievement_xp_per_point` must both report `2000`, while
-`obsolete_runtime_multiplier` must report `0`.
+`obsolete_runtime_multiplier` must report `0`. The five instance factors must
+report `1.25`, `1.5`, `2`, `2.5`, and `4` for their respective fields. The
+worldserver console must not report a missing `Map:GetExpansion`; that message
+means patch 05 was not rebuilt into the running server.
 
 At login, the console must not report `SetData`/`GetData` errors. A level-80
 character should earn exactly 2000 Paragon XP for each genuinely new profession

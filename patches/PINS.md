@@ -70,8 +70,9 @@ sources but omits the Lua headers and `lualib`, then fails at `lua.h`.
 The server Lua will not load on stock `mod-eluna`. `05-mod-ale.patch` adds the
 `PLAYER_EVENT_ON_CAN_LEARN_TALENT` (74), `PLAYER_EVENT_ON_KILL_REWARD` (75),
 and `MAP_EVENT_ON_ENCOUNTER_COMPLETE` (36) hooks; the
-`Creature:GetAtLevelXPReward()` and `Player:IsPlayerBot()` methods; and widens
-`ItemMethods` to the full enchantment-slot range. The follow-up
+`Creature:GetAtLevelXPReward()`, `Map:GetExpansion()`, and
+`Player:IsPlayerBot()` methods; and widens `ItemMethods` to the full
+enchantment-slot range. The follow-up
 `07-mod-ale-profession-xp.patch` adds the authoritative
 `PLAYER_EVENT_ON_PROFESSION_ACTION` (76) bridge. `08-core-pvp-merit.patch` and
 `09-mod-ale-pvp-merit.patch` add authoritative bridge events 77-81 for

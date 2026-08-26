@@ -75,13 +75,17 @@ And verify that default configuration values were inserted:
 
 ```sql
 SELECT COUNT(*) FROM acore_ale.paragon_config;
--- Should return at least 83 rows
+-- Should return at least 88 rows
 SELECT value FROM acore_ale.paragon_config
 WHERE field = 'UNIVERSAL_SKILL_EXPERIENCE';
 -- Should return 2000 (final XP)
 SELECT value FROM acore_ale.paragon_config
 WHERE field = 'PARAGON_ACHIEVEMENT_POINT_XP';
 -- Should return 2000 (final XP per achievement point)
+SELECT field, value FROM acore_ale.paragon_config
+WHERE field LIKE 'PARAGON_CREATURE_XP_%_MULTIPLIER'
+ORDER BY field;
+-- Should return the five instance factors: 1.25, 1.5, 2, 2.5, and 4
 SELECT COUNT(*) FROM acore_ale.paragon_config
 WHERE field = 'PARAGON_ONE_TIME_XP_MULTIPLIER';
 -- Should return 0 (obsolete runtime policy is removed)

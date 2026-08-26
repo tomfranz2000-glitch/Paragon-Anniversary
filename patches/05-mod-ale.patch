@@ -166,7 +166,7 @@ index a21640d..a29738a 100644
      void OnRemoveFromWorld(Creature* creature);
      void OnAddToWorld(GameObject* gameobject);
 diff --git a/src/LuaEngine/LuaFunctions.cpp b/src/LuaEngine/LuaFunctions.cpp
-index c0acc01..6c1f949 100644
+index c0acc01..60accdb 100644
 --- a/src/LuaEngine/LuaFunctions.cpp
 +++ b/src/LuaEngine/LuaFunctions.cpp
 @@ -634,6 +634,7 @@ ALERegister<Player> PlayerMethods[] =
@@ -185,6 +185,14 @@ index c0acc01..6c1f949 100644
      { "GetLootRecipient", &LuaCreature::GetLootRecipient },
      { "GetLootRecipientGroup", &LuaCreature::GetLootRecipientGroup },
      { "GetNPCFlags", &LuaCreature::GetNPCFlags },
+@@ -1311,6 +1313,7 @@ ALERegister<Map> MapMethods[] =
+     // Getters
+     { "GetName", &LuaMap::GetName },
+     { "GetDifficulty", &LuaMap::GetDifficulty },
++    { "GetExpansion", &LuaMap::GetExpansion },
+     { "GetInstanceId", &LuaMap::GetInstanceId },
+     { "GetInstanceData", &LuaMap::GetInstanceData },
+     { "GetPlayerCount", &LuaMap::GetPlayerCount },
 diff --git a/src/LuaEngine/hooks/PlayerHooks.cpp b/src/LuaEngine/hooks/PlayerHooks.cpp
 index 7649274..890bea5 100644
 --- a/src/LuaEngine/hooks/PlayerHooks.cpp
@@ -377,6 +385,31 @@ index 06ddf1d..6c71e4d 100644
              return luaL_argerror(L, 2, "valid EnchantmentSlot expected");
  
          if (!item->GetEnchantmentId(slot))
+diff --git a/src/LuaEngine/methods/MapMethods.h b/src/LuaEngine/methods/MapMethods.h
+index 79a1a08..b2851e5 100644
+--- a/src/LuaEngine/methods/MapMethods.h
++++ b/src/LuaEngine/methods/MapMethods.h
+@@ -124,8 +124,19 @@ namespace LuaMap
+     int GetDifficulty(lua_State* L, Map* map)
+     {
+         ALE::Push(L, map->GetDifficulty());
+         return 1;
+     }
+-
++
++    /**
++     * Returns the expansion assigned to the [Map] by Map.dbc.
++     *
++     * @return uint32 expansionId (0 = Vanilla, 1 = TBC, 2 = WotLK)
++     */
++    int GetExpansion(lua_State* L, Map* map)
++    {
++        ALE::Push(L, map->GetEntry()->Expansion());
++        return 1;
++    }
++
+     /**
+      * Returns the instance ID of the [Map].
 diff --git a/src/LuaEngine/methods/PlayerMethods.h b/src/LuaEngine/methods/PlayerMethods.h
 index f886261..272a55e 100644
 --- a/src/LuaEngine/methods/PlayerMethods.h
