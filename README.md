@@ -62,7 +62,7 @@ The **Paragon System** introduces an endgame progression mechanic for AzerothCor
   - **Combat**: Hit, Crit, Haste, Expertise, Armor Penetration
   - **Stats**: Strength, Agility, Stamina, Resistances, HP/Mana
   - **Auras**: Loot, Reputation, and Experience bonuses
-- **🎮 Multi-Source Experience**: Gain paragon XP from creatures, achievements, quests, profession actions, and profession skill mastery
+- **🎮 Multi-Source Experience**: Gain paragon XP from creatures, achievements, quests, professions, reputation progress, PvP, recipes, and collection unlocks
 - **💰 Point System**: Earn points to distribute among available statistics
 - **🔄 Client Integration**: In-game interface via custom addon
 - **💾 Persistent**: All progress saved to database
@@ -98,9 +98,14 @@ The **Paragon System** introduces an endgame progression mechanic for AzerothCor
 ### 🧩 **Module System**
 
 - `modules/paragon_anniversary.lua` - Experience & level-up mechanics
-- `modules/paragon_profession_xp.lua` - Profession actions, skill high-water marks, and pre-80 banks
+- `modules/paragon_achievement_claims.lua` - Account-wide one-time achievement claims
+- `modules/paragon_profession_xp.lua` - Profession actions plus profession, weapon, and lockpicking mastery high-water marks
 - `modules/paragon_profession_data.lua` - Generated craft/gather/process valuations
+- `modules/paragon_recipe_rewards.lua` - Account-wide one-time recipe claims and pending payouts
+- `modules/paragon_recipe_data.lua` - Generated final craft-spell reward catalog
 - `modules/paragon_pvp_xp.lua` - Durable honor, battleground, arena, outdoor, and duel rewards
+- `modules/paragon_collection_rewards.lua` - Durable appearance, mount, companion, toy, and heirloom claims
+- `modules/paragon_reputation_rewards.lua` - Account-wide reputation high-water rewards and pre-80 bank
 - Extensible via Mediator pattern for custom features
 
 </td>
@@ -122,8 +127,16 @@ The **Paragon System** introduces an endgame progression mechanic for AzerothCor
 - `account_paragon` - Account-wide levels & XP
 - `character_paragon_stats` - Stats always per character
 
-**Profession Progress:**
-- `paragon_profession_progress` - Durable per-scope skill high-water marks and pending XP
+**Skill Mastery Progress:**
+- `paragon_profession_progress` - Durable per-scope profession, weapon, and lockpicking high-water marks and pending XP
+- `paragon_recipe_reward_claim` - Account-wide final-spell recipe entitlements and pending XP
+- `paragon_recipe_reward_seed` - Per-character, versioned existing-spellbook seed state
+
+**One-Time Claims:**
+- `paragon_rewarded_achievement` - Canonical account achievement claims
+- `paragon_rewarded_collectible_spell` / `paragon_rewarded_appearance` - Collection claims
+- `paragon_collectible_account_item_xp` / `paragon_rewarded_account_item` - Typed toy and heirloom values/claims; `kind` keeps overlapping numeric item IDs distinct
+- `paragon_reputation_progress` - Canonical account faction high-water and pending XP
 
 **PvP Merit:**
 - `paragon_pvp_reward_claim` - Account-wide idempotency, DR, cap, breadth, and pending-payout ledger
@@ -190,14 +203,20 @@ and the server's transmog configuration defaults. Do not substitute upstream
 
 The installer applies `sql/install.sql`, runs every required data generator,
 deploys server Lua/ALE extensions and the addon, builds all client archives,
-seeds existing collections safely, and verifies the result. Use `--dry-run` to
-print its exact ordered plan without reading secrets or changing external state.
+seeds existing one-time ownership safely, and verifies the result. Current
+achievements, collections, skills, recipes, and reputation standings do not
+receive backpay. Use `--dry-run` to print the exact ordered plan without reading
+secrets or changing external state.
 `--check` regenerates all three MPQs in private temporary storage and exactly
 compares the generator-owned database rows without persistent database writes.
 Both `--apply` and `--check` also reject an incomplete patched C++ source tree,
 including missing ALE enabled-hook registrations and incomplete PvP Merit
-events 77–81. This validates the selected checkout; rebuild the server after
-patching because it does not establish which source produced an existing image.
+events 77–81 or reputation event 82. This validates the selected checkout;
+rebuild the server after patching because it does not establish which source
+produced an existing image. The reputation bridge is supplied by
+`patches/10-core-reputation-xp.patch` and
+`patches/11-mod-ale-reputation-xp.patch` in the order documented in the
+[installation guide](doc/INSTALL.md#patch-targets).
 
 ### Versioned instance-XP upgrade
 
@@ -274,19 +293,19 @@ Configure the system via database entries in `paragon_config`:
 | `MINIMUM_LEVEL_FOR_PARAGON_XP` | Minimum character level to earn paragon XP | `80` |
 | `LEVEL_UP_ANIMATION` | Spell visual played on a Paragon level-up | `64785` |
 
-With `ENABLE_PARAGON_SYSTEM=0`, no source awards XP and new profession skill
-gains are not added to the pre-level bank. Pending XP earned before disabling
+With `ENABLE_PARAGON_SYSTEM=0`, no source awards XP and new mastery skill gains
+are not added to the pre-level bank. Pending XP earned before disabling
 remains durable and can be paid after the system is enabled again.
 
 ### Progression Settings
 
 | Field | Description | Default |
 |-------|-------------|---------|
-| `BASE_MAX_EXPERIENCE` | XP required for the first Paragon level | `30000` |
+| `BASE_MAX_EXPERIENCE` | XP required for the first Paragon level | `100000` |
 | `POINTS_PER_LEVEL` | Points awarded per paragon level | `1` |
 | `PARAGON_STARTING_LEVEL` | Starting paragon level for new characters | `1` |
 | `PARAGON_STARTING_EXPERIENCE` | Starting experience value | `0` |
-| `PARAGON_CURVE_R0` | Initial growth rate for the decaying XP curve | `0.0429` |
+| `PARAGON_CURVE_R0` | Initial growth rate for the decaying XP curve | `0.029552484` |
 | `PARAGON_CURVE_K` | Decay constant for the XP curve | `20` |
 
 ### Experience Rewards
@@ -295,9 +314,11 @@ remains durable and can be paid after the system is enabled again.
 |-------|-------------|---------|
 | `UNIVERSAL_CREATURE_EXPERIENCE` | Default XP for creature kills | `50` |
 | `UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE` | Default XP for achievements | `100` |
-| `UNIVERSAL_SKILL_EXPERIENCE` | Exact XP per new profession high-water point | `2000` |
+| `UNIVERSAL_SKILL_EXPERIENCE` | Exact XP per new eligible skill-mastery high-water point | `5000` |
 | `UNIVERSAL_QUEST_EXPERIENCE` | Fallback XP for quest completion | `1` |
-| `PARAGON_ACHIEVEMENT_POINT_XP` | Exact XP awarded per achievement point | `2000` |
+| `PARAGON_ACHIEVEMENT_POINT_XP` | Exact XP awarded per achievement point | `10000` |
+| `PARAGON_REPUTATION_XP_ENABLED` | Enable account-wide one-time reputation-point rewards | `1` |
+| `PARAGON_REPUTATION_XP_PER_POINT` | Exact XP per new reputation high-water point | `50` |
 | `PARAGON_GROUP_XP_DISTANCE` | Maximum distance for party kill-XP sharing | `74` |
 | `PARAGON_CREATURE_XP_TBC_HEROIC_DUNGEON_MULTIPLIER` | TBC heroic-dungeon monster XP factor | `1.25` |
 | `PARAGON_CREATURE_XP_WOTLK_HEROIC_DUNGEON_MULTIPLIER` | WotLK heroic-dungeon monster XP factor | `1.5` |
@@ -310,11 +331,29 @@ penalty and group share. They do not affect quests, PvP, professions, or
 one-time rewards. TBC raids use one `2×` rule because TBC has no heroic raid
 difficulty.
 
-One-time rewards are stored at their final values: a profession high-water
-point and an ordinary appearance pay 2,000 XP, a 10-point achievement pays
-20,000 XP, and a baseline mount pays 160,000 XP. The collection generator
-stores every pet, mount, ordinary appearance, and rarity override at its final
-doubled value.
+One-time rewards are stored at their final values: an eligible skill high-water
+point pays 5,000 XP, a reputation high-water point pays 50 XP, a 10-point
+achievement pays 100,000 XP, and collection/recipe rewards use their
+source-aware generated values. Reputation is observed only after the core
+commits the final standing through ALE event 82; each account keeps one
+per-faction high-water, and current standings seed it without backpay.
+
+Skill mastery covers all 14 professions, 15 canonical use-leveled weapon
+tracks, and lockpicking. Fist Weapons (473) shares the Unarmed (162) track so a
+single attack cannot pay twice. Defense (95), Dual Wield (118), Feral Combat
+(134), Shield (433), Riding (762), Runeforging (776), and direct auto-max grants
+are excluded. The complete 12,700-point mastery catalog is worth 63,500,000 XP;
+existing values seed their high-water marks without backpay.
+
+The toy catalog is an exact 78-ID acquisition audit totaling 43,500,000 XP.
+Rarity informs its explicit per-ID values, with a 50,000 XP floor and 3,000,000
+XP cap. Each of the 38 heirlooms pays exactly 100,000 XP. Runtime ownership for
+both comes from EZCollections account rows, and typed value/claim keys prevent a
+toy and heirloom with the same item ID from colliding. The eight bounded catalog
+pools total 1,004,442,000 XP, about 54.44% of the 1,845,119,090 XP needed to reach
+Paragon 2000; reputation is an additional variable pool. Existing achievements,
+collections, skills, recipes, and reputation standings seed without
+reconciliation or retroactive XP.
 These rewards remain outside every personal Paragon XP modifier; quests and
 repeatable craft/gather/process rewards are unchanged.
 
@@ -346,7 +385,7 @@ repeatable craft/gather/process rewards are unchanged.
 - `limit`: Maximum points that can be invested (max 255)
 - `application`: How the stat bonus is applied
 
-The canonical database bootstrap supplies four categories and all 17
+The canonical database bootstrap supplies four categories and all 19
 runtime-supported statistics. `sql/11-13-2026_Example_Data.sql` is a destructive
 historical dump; never load it during installation or upgrade.
 
@@ -447,6 +486,7 @@ All code includes **LuaDoc** comments for inline documentation.
 | 🔧 **ALE** | [`9e5b8c66efeb383871ec58b925e47094c92cc8d5`](patches/PINS.md) | ✅ **Required** |
 | 📚 **Classic** | Any | ✅ **Required** |
 | 🔌 **CSMH** | Any | ✅ **Required** |
+| 🧸 **EZCollections** | Account toy/heirloom ownership tables | ➕ **Optional reward source** |
 
 ---
 
@@ -463,9 +503,13 @@ paragon/
 │       └── SMH.ext
 ├── modules/
 │   ├── paragon_anniversary.lua     # Experience & level-up mechanics
-│   ├── paragon_profession_xp.lua   # Profession actions and mastery ledger
+│   ├── paragon_profession_xp.lua   # Profession actions and skill-mastery ledger
 │   ├── paragon_profession_data.lua # Generated profession valuations
+│   ├── paragon_recipe_rewards.lua  # One-time final-recipe claims
+│   ├── paragon_recipe_data.lua     # Generated recipe reward catalog
 │   ├── paragon_pvp_xp.lua          # Durable PvP Merit rewards and ledgers
+│   ├── paragon_collection_rewards.lua # One-time collection claims
+│   ├── paragon_reputation_rewards.lua # Reputation high-water claims
 │   └── README.md                   # Module documentation
 ├── paragon_constant.lua            # Constants, SQL queries, stat enums
 ├── paragon_repository.lua          # Database access layer (Singleton)
@@ -488,6 +532,11 @@ sql/
 ├── 03_create_triggers.sql          # Validation triggers
 ├── 04_insert_default_config.sql    # Default configuration
 ├── 05_apply_anniversary_config.sql # Anniversary realm configuration
+├── 06_add_recipe_rewards.sql       # Existing-install recipe ledgers
+├── 07_add_achievement_reward_claims.sql # Existing achievement seeding
+├── 08_add_collection_pending_claims.sql # Crash-safe collection claims
+├── 09_add_reputation_and_account_collection_rewards.sql # Reputation/toy/heirloom ledgers
+├── 10_expand_skill_mastery_rewards.sql # Weapon/lockpicking mastery seed
 ├── 11-13-2026_Example_Data.sql     # Destructive historical reference only
 └── README.md                       # SQL installation guide
 ```

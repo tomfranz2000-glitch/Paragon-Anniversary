@@ -8,7 +8,7 @@
 -- ============================================================================
 
 ALTER TABLE `acore_ale`.`paragon_config_experience_skill`
-    MODIFY COLUMN `experience` INT(11) NOT NULL DEFAULT 2000;
+    MODIFY COLUMN `experience` INT(11) NOT NULL DEFAULT 5000;
 
 -- The profession payout acknowledgement updates its progression row and
 -- pending ledger in one statement, so both tables must be transactional.
@@ -69,41 +69,41 @@ START TRANSACTION;
 DELETE FROM `acore_ale`.`paragon_config`
 WHERE `field` = 'PARAGON_ONE_TIME_XP_MULTIPLIER';
 
--- Upgrade unpaid one-time claims from the former 1000-point authorities to
--- the new final 2000-point values. The joins make this exactly-once: this file
--- upserts both config rows to 2000 below, so every rerun skips these updates.
-UPDATE `acore_ale`.`paragon_profession_progress` profession
-JOIN `acore_ale`.`paragon_config` config
-  ON config.`field` = 'UNIVERSAL_SKILL_EXPERIENCE'
- AND config.`value` = '1000'
-SET profession.`pending_xp` = profession.`pending_xp` * 2
-WHERE profession.`pending_xp` > 0;
+-- Do not reconcile historical or already-banked one-time rewards. Existing
+-- pending amounts remain unchanged; only claims earned after this canonical
+-- configuration is installed use the new values below.
 
-UPDATE `acore_ale`.`paragon_banked_experience` banked
-JOIN `acore_ale`.`paragon_config` config
-  ON config.`field` = 'PARAGON_ACHIEVEMENT_POINT_XP'
- AND config.`value` = '1000'
-SET banked.`amount` = banked.`amount` * 2
-WHERE banked.`amount` > 0;
-
--- Seed both supported progression scopes from existing character skills.
+-- Seed both supported progression scopes from existing profession, weapon,
+-- and lockpicking skills. Fist Weapons and Unarmed share one reward track
+-- because the core advances both for the same attack.
 -- Re-running this migration is safe: it can only raise high-water and never
 -- creates pending XP, so historical points do not pay retroactively.
 INSERT INTO `acore_ale`.`paragon_profession_progress`
     (`owner_type`, `owner_id`, `skill_id`, `high_water`, `pending_xp`)
-SELECT 1, c.`account`, cs.`skill`, MAX(cs.`value`), 0
+SELECT 1, c.`account`,
+    CASE WHEN cs.`skill` = 473 THEN 162 ELSE cs.`skill` END,
+    MAX(cs.`value`), 0
 FROM `acore_characters`.`character_skills` cs
 JOIN `acore_characters`.`characters` c ON c.`guid` = cs.`guid`
-WHERE cs.`skill` IN (129,164,165,171,182,185,186,197,202,333,356,393,755,773)
-GROUP BY c.`account`, cs.`skill`
+WHERE cs.`skill` IN (
+    43,44,45,46,54,55,129,136,160,162,164,165,171,172,173,176,
+    182,185,186,197,202,226,228,229,333,356,393,473,633,755,773
+)
+GROUP BY c.`account`, CASE WHEN cs.`skill` = 473 THEN 162 ELSE cs.`skill` END
 ON DUPLICATE KEY UPDATE
     `high_water` = GREATEST(`high_water`, VALUES(`high_water`));
 
 INSERT INTO `acore_ale`.`paragon_profession_progress`
     (`owner_type`, `owner_id`, `skill_id`, `high_water`, `pending_xp`)
-SELECT 0, cs.`guid`, cs.`skill`, cs.`value`, 0
+SELECT 0, cs.`guid`,
+    CASE WHEN cs.`skill` = 473 THEN 162 ELSE cs.`skill` END,
+    MAX(cs.`value`), 0
 FROM `acore_characters`.`character_skills` cs
-WHERE cs.`skill` IN (129,164,165,171,182,185,186,197,202,333,356,393,755,773)
+WHERE cs.`skill` IN (
+    43,44,45,46,54,55,129,136,160,162,164,165,171,172,173,176,
+    182,185,186,197,202,226,228,229,333,356,393,473,633,755,773
+)
+GROUP BY cs.`guid`, CASE WHEN cs.`skill` = 473 THEN 162 ELSE cs.`skill` END
 ON DUPLICATE KEY UPDATE
     `high_water` = GREATEST(`high_water`, VALUES(`high_water`));
 
@@ -147,19 +147,21 @@ INSERT INTO `acore_ale`.`paragon_config` (field, value) VALUES
 ('LEVEL_UP_ANIMATION', '64785'),
 
 -- Progression Settings
-('BASE_MAX_EXPERIENCE', '30000'),
+('BASE_MAX_EXPERIENCE', '100000'),
 ('POINTS_PER_LEVEL', '1'),
 ('PARAGON_STARTING_LEVEL', '1'),
 ('PARAGON_STARTING_EXPERIENCE', '0'),
-('PARAGON_CURVE_R0', '0.0429'),
+('PARAGON_CURVE_R0', '0.029552484'),
 ('PARAGON_CURVE_K', '20'),
 
 -- Experience Rewards
 ('UNIVERSAL_CREATURE_EXPERIENCE', '50'),
 ('UNIVERSAL_ACHIEVEVEMENT_EXPERIENCE', '100'),
-('UNIVERSAL_SKILL_EXPERIENCE', '2000'),
+('UNIVERSAL_SKILL_EXPERIENCE', '5000'),
 ('UNIVERSAL_QUEST_EXPERIENCE', '1'),
-('PARAGON_ACHIEVEMENT_POINT_XP', '2000'),
+('PARAGON_ACHIEVEMENT_POINT_XP', '10000'),
+('PARAGON_REPUTATION_XP_ENABLED', '1'),
+('PARAGON_REPUTATION_XP_PER_POINT', '50'),
 ('PARAGON_GROUP_XP_DISTANCE', '74'),
 ('PARAGON_CREATURE_XP_TBC_HEROIC_DUNGEON_MULTIPLIER', '1.25'),
 ('PARAGON_CREATURE_XP_WOTLK_HEROIC_DUNGEON_MULTIPLIER', '1.5'),

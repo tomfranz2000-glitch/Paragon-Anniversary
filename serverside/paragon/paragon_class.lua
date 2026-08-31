@@ -51,7 +51,7 @@ local Paragon = Object:extend()
 ---
 local function CalculateMaxExperienceForLevel(level)
     level = level or tonumber(Config:GetByField("PARAGON_STARTING_LEVEL"))
-    local base_max_exp = tonumber(Config:GetByField("BASE_MAX_EXPERIENCE")) or 30000
+    local base_max_exp = tonumber(Config:GetByField("BASE_MAX_EXPERIENCE")) or 100000
     return base_max_exp * level
 end
 

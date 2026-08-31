@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config_experience_achievement` (
 
 CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_config_experience_skill` (
     `id` INT(11) NOT NULL,
-    `experience` INT(11) NOT NULL DEFAULT 2000,
+    `experience` INT(11) NOT NULL DEFAULT 5000,
 
     PRIMARY KEY (`id`)
 );
@@ -118,6 +118,30 @@ CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_profession_progress` (
     PRIMARY KEY (`owner_type`, `owner_id`, `skill_id`)
 ) ENGINE=InnoDB;
 
+-- Final profession-recipe spells are account-wide one-time entitlements.
+-- Existing spellbooks are seeded without XP by the Lua runtime once per
+-- character and generated catalogue version.
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_recipe_reward_claim` (
+    `account_id` INT UNSIGNED NOT NULL,
+    `spell_id` INT UNSIGNED NOT NULL,
+    `pending_xp` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    `claimed_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (`account_id`, `spell_id`),
+    KEY `ix_paragon_recipe_pending` (`account_id`, `pending_xp`)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_recipe_reward_seed` (
+    `guid` INT UNSIGNED NOT NULL,
+    `account_id` INT UNSIGNED NOT NULL,
+    `catalog_version` INT UNSIGNED NOT NULL,
+    `seeded_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (`guid`),
+    KEY `ix_paragon_recipe_seed_account` (`account_id`)
+) ENGINE=InnoDB;
+
 -- --------------------------------------------------------------------------
 -- Collection rewards and pre-minimum-level banking
 -- --------------------------------------------------------------------------
@@ -139,19 +163,64 @@ CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_collectible_item_xp` (
     PRIMARY KEY (`item_id`)
 );
 
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_collectible_account_item_xp` (
+    `kind` VARCHAR(10) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    `item_id` INT UNSIGNED NOT NULL,
+    `name` VARCHAR(120) NOT NULL,
+    `xp` INT UNSIGNED NOT NULL,
+
+    PRIMARY KEY (`kind`, `item_id`)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_rewarded_collectible_spell` (
     `account_id` INT UNSIGNED NOT NULL,
     `spell_id` INT UNSIGNED NOT NULL,
+    `pending_xp` BIGINT UNSIGNED NOT NULL DEFAULT 0,
 
-    PRIMARY KEY (`account_id`, `spell_id`)
-);
+    PRIMARY KEY (`account_id`, `spell_id`),
+    KEY `ix_paragon_collectible_spell_pending` (`account_id`, `pending_xp`)
+) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_rewarded_appearance` (
     `account_id` INT UNSIGNED NOT NULL,
     `item_id` INT UNSIGNED NOT NULL,
+    `pending_xp` BIGINT UNSIGNED NOT NULL DEFAULT 0,
 
-    PRIMARY KEY (`account_id`, `item_id`)
-);
+    PRIMARY KEY (`account_id`, `item_id`),
+    KEY `ix_paragon_appearance_pending` (`account_id`, `pending_xp`)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_rewarded_account_item` (
+    `account_id` INT UNSIGNED NOT NULL,
+    `kind` VARCHAR(10) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    `item_id` INT UNSIGNED NOT NULL,
+    `pending_xp` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (`account_id`, `kind`, `item_id`),
+    KEY `ix_paragon_account_item_pending` (`account_id`, `pending_xp`)
+) ENGINE=InnoDB;
+
+-- Account-wide reputation high-water makes the fixed reward genuinely
+-- one-time. Faction-change counterparts are stored under one canonical ID.
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_reputation_progress` (
+    `account_id` INT UNSIGNED NOT NULL,
+    `faction_id` INT UNSIGNED NOT NULL,
+    `high_water` INT NOT NULL,
+    `pending_xp` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (`account_id`, `faction_id`),
+    KEY `ix_paragon_reputation_pending` (`account_id`, `pending_xp`)
+) ENGINE=InnoDB;
+
+-- Achievement points pay once per account. Faction-equivalent IDs are
+-- canonicalized by the migration/runtime before they reach this table.
+CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_rewarded_achievement` (
+    `account_id` INT UNSIGNED NOT NULL,
+    `achievement_id` INT UNSIGNED NOT NULL,
+    `pending_xp` BIGINT UNSIGNED NOT NULL DEFAULT 0,
+
+    PRIMARY KEY (`account_id`, `achievement_id`)
+) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS `acore_ale`.`paragon_banked_experience` (
     `guid` INT UNSIGNED NOT NULL,

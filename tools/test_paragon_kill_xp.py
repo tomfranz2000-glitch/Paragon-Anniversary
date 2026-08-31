@@ -40,7 +40,7 @@ class ParagonKillXPTests(unittest.TestCase):
             }
             ConfigValues = {
                 PARAGON_GROUP_XP_DISTANCE = "74",
-                PARAGON_ACHIEVEMENT_POINT_XP = "2000",
+                PARAGON_ACHIEVEMENT_POINT_XP = "10000",
                 PARAGON_CREATURE_XP_TBC_HEROIC_DUNGEON_MULTIPLIER = "1.25",
                 PARAGON_CREATURE_XP_WOTLK_HEROIC_DUNGEON_MULTIPLIER = "1.5",
                 PARAGON_CREATURE_XP_TBC_RAID_MULTIPLIER = "2",

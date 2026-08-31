@@ -693,7 +693,10 @@ paragon  -- Modified or original paragon instance
 ```
 
 **Description:**
-Triggered before achievement experience is awarded.
+Triggered before achievement experience is awarded or banked. Event 45 first
+passes the durable account-wide achievement claim guard; replayed achievements,
+faction counterparts, bots, disabled-system callbacks, and zero-value entries
+do not reach this mediator.
 
 ---
 
@@ -737,12 +740,17 @@ paragon  -- Modified or original paragon instance
 ```
 
 **Description:**
-Triggered before an eligible profession high-water award. The universal
+Triggered before an eligible skill-mastery high-water award. The universal
 `UNIVERSAL_SKILL_EXPERIENCE` is multiplied by the actual number of newly
 mastered points and bypasses `OnExperienceCalculated`. With the shipped direct
-value of 2000, each point pays exactly 2000 XP. Legacy per-skill override rows are not
-consulted. Account-linked realms share one durable high-water mark across alts.
-Weapon, defense, riding, and lockpicking updates do not qualify.
+value of 5,000, each point pays exactly 5,000 XP. Legacy per-skill override rows
+are not consulted. Account-linked realms share one durable high-water mark
+across alts.
+
+The allowlist contains 14 professions, 15 canonical use-leveled weapon tracks,
+and lockpicking. Fist Weapons (473) is reported against the shared Unarmed (162)
+track. Defense (95), Dual Wield (118), Feral Combat (134), Shield (433), Riding
+(762), Runeforging (776), and direct auto-max grants do not qualify.
 
 ---
 
@@ -759,8 +767,8 @@ paragon -- The fully loaded Paragon instance already stored with SetData
 
 **Description:**
 Triggered only after the live Paragon object is ready. The profession module
-uses this point to seed existing skill high-water values without retroactive XP
-and to pay any durable pre-80 profession bank.
+uses this point to seed existing eligible skill high-water values without
+retroactive XP and to pay any durable pre-80 skill-mastery bank.
 
 ---
 
@@ -778,6 +786,20 @@ Action kinds are `CRAFT=1`, `GATHER_GAMEOBJECT=2`, `GATHER_CREATURE=3`,
 the authoritative base reward through generated profession data, rejects
 unknown/mismatched rows, and deduplicates the server action token before the
 normal multiplier pipeline.
+
+### ALE player event 82 — committed reputation change
+
+**Source:** required AzerothCore/ALE post-reputation hook
+
+```lua
+(event, player, factionId, oldAbsoluteStanding, newAbsoluteStanding, incremental)
+```
+
+Unlike legacy event 15, event 82 is observational and fires only after the
+core commits its final standing. `paragon_reputation_rewards.lua` uses it to
+advance an account-wide canonical faction high-water, bank `50 × new points`,
+and settle through the flat reward path. Loss/regain, event replay, alts, and
+Alliance/Horde faction-change pairs cannot duplicate the award.
 
 ---
 

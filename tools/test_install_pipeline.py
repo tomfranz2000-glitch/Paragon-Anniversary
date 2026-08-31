@@ -38,6 +38,10 @@ def write_native_kill_reward_fixture(core, register_enabled_hook=True):
         "src/server/game/Entities/Player/KillRewarder.cpp": """
             sScriptMgr->OnPlayerRewardKillRewarder(player, this, isDungeon, rate);
         """,
+        "src/server/game/Reputation/ReputationMgr.cpp": """
+            sScriptMgr->OnPlayerAfterReputationChange(
+                player, factionId, oldStanding, newStanding, incremental);
+        """,
         "src/server/game/Entities/Player/Player.cpp": """
             sScriptMgr->OnPlayerPvPHonor(
                 player, victim, honor, source, context, arena, rated, xp, token);
@@ -66,6 +70,10 @@ def write_native_kill_reward_fixture(core, register_enabled_hook=True):
                 PlayerScript,
                 PLAYERHOOK_ON_OUTDOOR_PVP_OBJECTIVE,
                 script->OnPlayerOutdoorPvPObjective(player));
+            CALL_ENABLED_HOOKS(
+                PlayerScript,
+                PLAYERHOOK_ON_AFTER_REPUTATION_CHANGE,
+                script->OnPlayerAfterReputationChange(player));
         """,
         "src/server/game/Scripting/ScriptDefines/AllBattlegroundScript.cpp": """
             CALL_ENABLED_HOOKS(
@@ -132,6 +140,7 @@ def write_native_kill_reward_fixture(core, register_enabled_hook=True):
                     PLAYERHOOK_ON_PVP_HONOR,
                     PLAYERHOOK_ON_OUTDOOR_PVP_OBJECTIVE,
                     PLAYERHOOK_ON_REPUTATION_CHANGE,
+                    PLAYERHOOK_ON_AFTER_REPUTATION_CHANGE,
                 }) { }
 
                 void OnPlayerRewardKillRewarder(Player* player,
@@ -147,6 +156,14 @@ def write_native_kill_reward_fixture(core, register_enabled_hook=True):
                     sALE->OnOutdoorPvPObjective(player, type, objective, entry,
                         tier, map, zone, team, participants, token);
                     sPvPMeritTracker.OnDuelEnd(player, opponent, DUEL_WON);
+                }
+
+                void OnPlayerAfterReputationChange(Player* player,
+                    uint32 factionId, int32 oldStanding, int32 newStanding,
+                    bool incremental) override
+                {
+                    sALE->OnAfterReputationChange(player, factionId,
+                        oldStanding, newStanding, incremental);
                 }
             };
 
@@ -167,6 +184,7 @@ def write_native_kill_reward_fixture(core, register_enabled_hook=True):
             PLAYER_EVENT_ON_PVP_BATTLEFIELD_COMPLETE = 79,
             PLAYER_EVENT_ON_PVP_OUTDOOR_OBJECTIVE = 80,
             PLAYER_EVENT_ON_PVP_DUEL_COMPLETE = 81,
+            PLAYER_EVENT_ON_AFTER_REPUTATION_CHANGE = 82,
         """,
         "modules/mod-ale/src/LuaEngine/LuaEngine.h": """
             void OnKillReward(Player* player, Creature* creature);
@@ -175,11 +193,19 @@ def write_native_kill_reward_fixture(core, register_enabled_hook=True):
             void OnPvPBattlefieldComplete(Player* player);
             void OnOutdoorPvPObjective(Player* player);
             void OnPvPDuelComplete(Player* winner, Player* loser);
+            void OnAfterReputationChange(Player* player, uint32 factionId,
+                int32 oldStanding, int32 newStanding, bool incremental);
         """,
         "modules/mod-ale/src/LuaEngine/hooks/PlayerHooks.cpp": """
             void ALE::OnKillReward(Player* player, Creature* creature)
             {
                 START_HOOK(PLAYER_EVENT_ON_KILL_REWARD);
+            }
+            void ALE::OnAfterReputationChange(Player* player,
+                uint32 factionId, int32 oldStanding, int32 newStanding,
+                bool incremental)
+            {
+                START_HOOK(PLAYER_EVENT_ON_AFTER_REPUTATION_CHANGE);
             }
         """,
         "modules/mod-ale/src/LuaEngine/hooks/PvPMeritHooks.cpp": """
@@ -207,9 +233,16 @@ def write_native_kill_reward_fixture(core, register_enabled_hook=True):
                 return map->GetEntry()->Expansion();
             }
         """,
+        "modules/mod-ale/src/LuaEngine/methods/GlobalMethods.h": """
+            int GetFactionBaseReputation(lua_State* state)
+            {
+                return sObjectMgr->GetBaseReputationOf(faction, race, playerClass);
+            }
+        """,
         "modules/mod-ale/src/LuaEngine/LuaFunctions.cpp": """
             { "GetAtLevelXPReward", &LuaCreature::GetAtLevelXPReward }
             { "GetExpansion", &LuaMap::GetExpansion }
+            { "GetFactionBaseReputation", &LuaGlobalFunctions::GetFactionBaseReputation }
         """,
     }
     for relative_path, source in sources.items():
@@ -227,6 +260,7 @@ class InstallPipelineTests(unittest.TestCase):
                 "database-bootstrap",
                 "static-data",
                 "profession-data",
+                "recipe-data",
                 "server-payload",
                 "class-data",
                 "content-and-client-dbc",
@@ -283,6 +317,8 @@ class InstallPipelineTests(unittest.TestCase):
                 "gen_enchant_text.py",
                 "gen_profession_xp.py",
                 "gen_profession_xp.py",
+                "gen_recipe_rewards.py",
+                "gen_recipe_rewards.py",
                 "gen_class_talents.py",
                 "gen_class_trainers.py",
                 "paragon_client_patch.py",
@@ -296,10 +332,11 @@ class InstallPipelineTests(unittest.TestCase):
             scripts,
         )
         self.assertIn("--check", commands[7])
-        self.assertIn("--apply", commands[10])
-        self.assertIn("--seed", commands[11])
-        self.assertIn("--check", commands[12])
+        self.assertIn("--check", commands[9])
+        self.assertIn("--apply", commands[12])
+        self.assertIn("--seed", commands[13])
         self.assertIn("--check", commands[14])
+        self.assertIn("--check", commands[16])
 
     def test_check_commands_are_read_only(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -308,7 +345,7 @@ class InstallPipelineTests(unittest.TestCase):
         flattened = [argument for command in commands for argument in command]
         self.assertNotIn("--apply", flattened)
         self.assertNotIn("--seed", flattened)
-        for command in commands[1:9]:
+        for command in commands[1:10]:
             self.assertIn("--check", command)
 
     def test_dry_run_never_executes_a_subprocess_or_creates_targets(self):
@@ -497,7 +534,7 @@ class InstallPipelineTests(unittest.TestCase):
     def test_database_verification_requires_exact_tables_and_triggers(self):
         pipeline = object.__new__(install.Pipeline)
         pipeline.verify_canonical_world_content = mock.Mock()
-        content_ok = "\t".join(["1"] * 23) + "\n"
+        content_ok = "\t".join(["1"] * 39) + "\n"
         pipeline._mysql = mock.Mock(side_effect=(
             "\n".join(reversed(install.REQUIRED_ALE_TABLES)) + "\n",
             "\n".join(reversed(install.REQUIRED_ALE_TRIGGERS)) + "\n",

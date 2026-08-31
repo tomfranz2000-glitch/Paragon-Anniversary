@@ -62,7 +62,7 @@ local function ProcessMultipleLevelUps(paragon, gained_experience)
 
     -- Accumulate total experience
     local total_experience = paragon:GetExperience() + gained_experience
-    local base_max_experience = tonumber(Config:GetByField("BASE_MAX_EXPERIENCE")) or 30000
+    local base_max_experience = tonumber(Config:GetByField("BASE_MAX_EXPERIENCE")) or 100000
     local levels_gained = 0
 
     -- Process level-ups while experience exceeds current level's threshold

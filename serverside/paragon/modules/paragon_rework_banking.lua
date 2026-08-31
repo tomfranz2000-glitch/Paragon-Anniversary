@@ -1,12 +1,10 @@
 --[[
-    Paragon Rework: pre-80 banking of one-time rewards (local module, see
-    "Paragon Progression Design.md")
+    Legacy GUID-bank drain.
 
-    One-time XP rewards earned below the paragon minimum level (achievements,
-    for now) accrue in acore_ale.paragon_banked_experience and are paid out as
-    one authoritative-value lump through the normal level-up pipeline when the
-    character reaches the minimum level. Forward-only: nothing is granted
-    retroactively for achievements earned before this module shipped.
+    New achievement rewards use the account-scoped pending ledger in
+    paragon_achievement_claims.lua. This module intentionally has no accrual
+    hook; it only preserves payout for paragon_banked_experience rows written
+    by older deployments. Once those rows have drained, the table is inert.
 ]]
 
 local Config = require("paragon_config")
@@ -21,26 +19,7 @@ local function MinLevel()
 end
 
 -- ============================================================================
--- ACCRUAL (below minimum level)
--- ============================================================================
-
-RegisterMediatorEvent("OnBeforeAchievementExperience", function(player, achievement, paragon)
-    if player:GetLevel() >= MinLevel() then
-        return
-    end
-
-    local value = ParagonRework_AchievementValue(achievement:GetId())
-    if not value or value <= 0 then
-        return
-    end
-
-    CharDBExecute(string.format(
-        "INSERT INTO %s (guid, amount) VALUES (%d, %d) ON DUPLICATE KEY UPDATE amount = amount + %d;",
-        BANK_TABLE, player:GetGUIDLow(), value, value))
-end)
-
--- ============================================================================
--- PAYOUT (on reaching minimum level)
+-- LEGACY PAYOUT
 -- ============================================================================
 
 local function PayOut(player, banked)
@@ -118,4 +97,4 @@ end
 
 RegisterPlayerEvent(3, OnLogin)
 
-print("[Paragon] Rework: pre-80 banking module loaded")
+print("[Paragon] Rework: legacy GUID-bank drain loaded")

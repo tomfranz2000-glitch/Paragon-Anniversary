@@ -1,0 +1,132 @@
+diff --git a/src/ALE_SC.cpp b/src/ALE_SC.cpp
+index 2068c7c..bf0916c 100644
+--- a/src/ALE_SC.cpp
++++ b/src/ALE_SC.cpp
+@@ -705,6 +705,7 @@ public:
+         PLAYERHOOK_ON_GIVE_EXP,
+         PLAYERHOOK_ON_REWARD_KILL_REWARDER,
+         PLAYERHOOK_ON_REPUTATION_CHANGE,
++        PLAYERHOOK_ON_AFTER_REPUTATION_CHANGE,
+         PLAYERHOOK_ON_DUEL_REQUEST,
+         PLAYERHOOK_ON_DUEL_START,
+         PLAYERHOOK_ON_DUEL_END,
+@@ -924,6 +925,12 @@ public:
+         return sALE->OnReputationChange(player, factionID, standing, incremental);
+     }
+ 
++    void OnPlayerAfterReputationChange(Player* player, uint32 factionID, int32 oldStanding, int32 newStanding,
++        bool incremental) override
++    {
++        sALE->OnAfterReputationChange(player, factionID, oldStanding, newStanding, incremental);
++    }
++
+     void OnPlayerDuelRequest(Player* target, Player* challenger) override
+     {
+         sALE->OnDuelRequest(target, challenger);
+diff --git a/src/LuaEngine/Hooks.h b/src/LuaEngine/Hooks.h
+index 40657bf..c246954 100644
+--- a/src/LuaEngine/Hooks.h
++++ b/src/LuaEngine/Hooks.h
+@@ -267,6 +267,9 @@ namespace Hooks
+         // (event, winner, loser, duelType, durationSeconds, sameAccount,
+         //  sameIp, winnerIsBot, loserIsBot, eventToken)
+         PLAYER_EVENT_ON_PVP_DUEL_COMPLETE                   =     81,
++        // Authoritative absolute standings after the core commits the change.
++        // (event, player, factionId, oldStanding, newStanding, incremental)
++        PLAYER_EVENT_ON_AFTER_REPUTATION_CHANGE             =     82,
+ 
+         PLAYER_EVENT_COUNT
+     };
+diff --git a/src/LuaEngine/LuaEngine.h b/src/LuaEngine/LuaEngine.h
+index 85b56b0..c41f0da 100644
+--- a/src/LuaEngine/LuaEngine.h
++++ b/src/LuaEngine/LuaEngine.h
+@@ -479,6 +479,8 @@ public:
+         bool sameAccount, bool sameIp, bool winnerIsBot, bool loserIsBot, std::string const& eventToken);
+     void OnKillReward(Player* pPlayer, Creature* pCreature, bool isDungeon, uint32 participantCount, bool isRaid);
+     bool OnReputationChange(Player* pPlayer, uint32 factionID, int32& standing, bool incremental);
++    void OnAfterReputationChange(Player* player, uint32 factionId, int32 oldStanding, int32 newStanding,
++        bool incremental);
+     void OnDuelRequest(Player* pTarget, Player* pChallenger);
+     void OnDuelStart(Player* pStarter, Player* pChallenger);
+     void OnDuelEnd(Player* pWinner, Player* pLoser, DuelCompleteType type);
+diff --git a/src/LuaEngine/LuaFunctions.cpp b/src/LuaEngine/LuaFunctions.cpp
+index 60accdb..cec41bb 100644
+--- a/src/LuaEngine/LuaFunctions.cpp
++++ b/src/LuaEngine/LuaFunctions.cpp
+@@ -115,6 +115,7 @@ luaL_Reg GlobalMethods[] =
+     { "GetPlayerGUID", &LuaGlobalFunctions::GetPlayerGUID },
+     { "GetItemGUID", &LuaGlobalFunctions::GetItemGUID },
+     { "GetItemTemplate", &LuaGlobalFunctions::GetItemTemplate },
++    { "GetFactionBaseReputation", &LuaGlobalFunctions::GetFactionBaseReputation },
+     { "GetObjectGUID", &LuaGlobalFunctions::GetObjectGUID },
+     { "GetUnitGUID", &LuaGlobalFunctions::GetUnitGUID },
+     { "GetGUIDLow", &LuaGlobalFunctions::GetGUIDLow },
+diff --git a/src/LuaEngine/hooks/PlayerHooks.cpp b/src/LuaEngine/hooks/PlayerHooks.cpp
+index 5e0ee51..b60aeb6 100644
+--- a/src/LuaEngine/hooks/PlayerHooks.cpp
++++ b/src/LuaEngine/hooks/PlayerHooks.cpp
+@@ -296,6 +296,18 @@ bool ALE::OnReputationChange(Player* pPlayer, uint32 factionID, int32& standing,
+     return result;
+ }
+ 
++void ALE::OnAfterReputationChange(Player* player, uint32 factionId, int32 oldStanding, int32 newStanding,
++    bool incremental)
++{
++    START_HOOK(PLAYER_EVENT_ON_AFTER_REPUTATION_CHANGE);
++    Push(player);
++    Push(factionId);
++    Push(oldStanding);
++    Push(newStanding);
++    Push(incremental);
++    CallAllFunctions(PlayerEventBindings, key);
++}
++
+ void ALE::OnDuelRequest(Player* pTarget, Player* pChallenger)
+ {
+     START_HOOK(PLAYER_EVENT_ON_DUEL_REQUEST);
+diff --git a/src/LuaEngine/methods/GlobalMethods.h b/src/LuaEngine/methods/GlobalMethods.h
+index 9250d3f..04dd4cc 100644
+--- a/src/LuaEngine/methods/GlobalMethods.h
++++ b/src/LuaEngine/methods/GlobalMethods.h
+@@ -11,7 +11,9 @@
+ #include "ALEDBCRegistry.h"
+ 
+ #include "BanMgr.h"
++#include "DBCStores.h"
+ #include "GameTime.h"
++#include "ObjectMgr.h"
+ #include "SharedDefines.h"
+ #include "OutdoorPvPMgr.h"
+ #include "../../../../src/server/scripts/OutdoorPvP/OutdoorPvPNA.h"
+@@ -374,6 +376,30 @@ namespace LuaGlobalFunctions
+         return 1;
+     }
+ 
++    /**
++     * Returns the race/class-specific absolute base standing for a faction.
++     *
++     * @param uint32 factionId
++     * @param uint8 raceId
++     * @param uint8 classId
++     * @return int32 baseStanding, or nil when the faction is invalid
++     */
++    int GetFactionBaseReputation(lua_State* L)
++    {
++        uint32 const factionId = ALE::CHECKVAL<uint32>(L, 1);
++        uint8 const raceId = ALE::CHECKVAL<uint8>(L, 2);
++        uint8 const classId = ALE::CHECKVAL<uint8>(L, 3);
++        FactionEntry const* faction = sFactionStore.LookupEntry(factionId);
++        if (!faction || !faction->CanHaveReputation())
++        {
++            ALE::Push(L);
++            return 1;
++        }
++
++        ALE::Push(L, sObjectMgr->GetBaseReputationOf(faction, raceId, classId));
++        return 1;
++    }
++
+     /**
+      * Builds a [GameObject]'s GUID.
+      *

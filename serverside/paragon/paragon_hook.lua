@@ -59,6 +59,7 @@ local EXPERIENCE_SOURCE = {
     PVP_DUEL = 13,
     PVP_BREADTH = 14,
     PVP_WINTERGRASP = 15,
+    REPUTATION = 16,
 }
 
 Hook.ExperienceSource = EXPERIENCE_SOURCE
@@ -71,6 +72,7 @@ local FLAT_EXPERIENCE_SOURCE = {
     [EXPERIENCE_SOURCE.SKILLUP] = true,
     [EXPERIENCE_SOURCE.QUEST] = true,
     [EXPERIENCE_SOURCE.COLLECTIBLE] = true,
+    [EXPERIENCE_SOURCE.REPUTATION] = true,
 }
 
 -- ============================================================================
@@ -846,18 +848,11 @@ function Hook.OnPlayerAchievementComplete(event, player, achievement)
         return
     end
 
-    local paragon = player:GetData("Paragon")
-    if not paragon then
+    local achievement_id = achievement:GetId()
+    if type(ParagonAchievementReward_OnComplete) ~= "function" then
         return
     end
-
-    -- Allow modules to intercept achievement experience gain
-    paragon = Mediator.On("OnBeforeAchievementExperience", {
-        arguments = { player, achievement, paragon },
-        defaults = { paragon },
-    })
-
-    UpdatePlayerExperience(player, paragon, EXPERIENCE_SOURCE.ACHIEVEMENT, achievement:GetId())
+    ParagonAchievementReward_OnComplete(player, achievement_id)
 end
 
 ---

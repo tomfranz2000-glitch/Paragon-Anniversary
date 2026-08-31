@@ -15,7 +15,8 @@ mysql [connection options] < sql/install.sql
 
 `sql/install.sql` is the supported entrypoint for both fresh installations and
 upgrades. It is rerunnable and fixes the component order so an installation
-cannot accidentally omit the profession ledger, configuration, or triggers.
+cannot accidentally omit configuration, triggers, or any one-time reward
+ledger.
 
 ### Execution Order
 
@@ -26,6 +27,11 @@ Execute the following files in order using your preferred MySQL client (MySQL Wo
 3. **03_create_triggers.sql** - Creates validation triggers for statistics
 4. **04_insert_default_config.sql** - Inserts default configuration values
 5. **05_apply_anniversary_config.sql** - Updates an existing installation to the canonical Anniversary realm values
+6. **06_add_recipe_rewards.sql** - Adds rerunnable recipe claim/seed ledgers for existing installations
+7. **07_add_achievement_reward_claims.sql** - Adds and no-XP-seeds the account achievement claim ledger
+8. **08_add_collection_pending_claims.sql** - Upgrades collection mirrors to crash-safe pending ledgers
+9. **09_add_reputation_and_account_collection_rewards.sql** - Adds the account-wide reputation high-water ledger and typed toy/heirloom value and claim ledgers
+10. **10_expand_skill_mastery_rewards.sql** - No-XP-seeds weapon and lockpicking high-water marks for the expanded mastery allowlist
 
 ### Component migrations
 
@@ -37,6 +43,11 @@ SOURCE sql/02_create_tables.sql;
 SOURCE sql/03_create_triggers.sql;
 SOURCE sql/04_insert_default_config.sql;
 SOURCE sql/05_apply_anniversary_config.sql;
+SOURCE sql/06_add_recipe_rewards.sql;
+SOURCE sql/07_add_achievement_reward_claims.sql;
+SOURCE sql/08_add_collection_pending_claims.sql;
+SOURCE sql/09_add_reputation_and_account_collection_rewards.sql;
+SOURCE sql/10_expand_skill_mastery_rewards.sql;
 ```
 
 The component files remain available for diagnosis and review. Do not run them
@@ -56,14 +67,20 @@ After running `sql/install.sql`, verify the installation by checking that the fo
 - `acore_ale.paragon_config_experience_skill`
 - `acore_ale.paragon_config_experience_quest`
 - `acore_ale.paragon_profession_progress`
+- `acore_ale.paragon_reputation_progress`
+- `acore_ale.paragon_recipe_reward_claim`
+- `acore_ale.paragon_recipe_reward_seed`
 - `acore_ale.paragon_pvp_reward_claim`
 - `acore_ale.character_paragon`
 - `acore_ale.account_paragon`
 - `acore_ale.character_paragon_stats`
 - `acore_ale.paragon_collectible_spell_xp`
 - `acore_ale.paragon_collectible_item_xp`
+- `acore_ale.paragon_collectible_account_item_xp`
 - `acore_ale.paragon_rewarded_collectible_spell`
 - `acore_ale.paragon_rewarded_appearance`
+- `acore_ale.paragon_rewarded_account_item`
+- `acore_ale.paragon_rewarded_achievement`
 - `acore_ale.paragon_banked_experience`
 - `acore_ale.paragon_codex_alloc`
 - `acore_ale.paragon_custom_glyph`
@@ -75,13 +92,18 @@ And verify that default configuration values were inserted:
 
 ```sql
 SELECT COUNT(*) FROM acore_ale.paragon_config;
--- Should return at least 88 rows
+-- A clean canonical install returns exactly 90 rows; an upgraded realm with
+-- custom settings may return more
 SELECT value FROM acore_ale.paragon_config
 WHERE field = 'UNIVERSAL_SKILL_EXPERIENCE';
--- Should return 2000 (final XP)
+-- Should return 5000 (final XP per eligible mastery point)
 SELECT value FROM acore_ale.paragon_config
 WHERE field = 'PARAGON_ACHIEVEMENT_POINT_XP';
--- Should return 2000 (final XP per achievement point)
+-- Should return 10000 (final XP per achievement point)
+SELECT field, value FROM acore_ale.paragon_config
+WHERE field IN ('PARAGON_REPUTATION_XP_ENABLED',
+                'PARAGON_REPUTATION_XP_PER_POINT');
+-- Should return 1 and 50
 SELECT field, value FROM acore_ale.paragon_config
 WHERE field LIKE 'PARAGON_CREATURE_XP_%_MULTIPLIER'
 ORDER BY field;
@@ -92,19 +114,49 @@ WHERE field = 'PARAGON_ONE_TIME_XP_MULTIPLIER';
 SELECT COUNT(*) FROM acore_ale.paragon_config_category;
 -- Should return at least 4
 SELECT COUNT(*) FROM acore_ale.paragon_config_statistic;
--- Should return at least 17
+-- A clean canonical install returns exactly 19 rows; an upgraded realm with
+-- custom statistics may return more
+SELECT kind, COUNT(*) AS ids, SUM(xp) AS total_xp,
+       MIN(xp) AS minimum_xp, MAX(xp) AS maximum_xp
+FROM acore_ale.paragon_collectible_account_item_xp
+GROUP BY kind
+ORDER BY kind;
+-- heirloom: 38 / 3800000 / 100000 / 100000
+-- toy: 78 / 43500000 / 50000 / 3000000
 ```
 
 `04_insert_default_config.sql` is non-destructive and only fills missing rows.
-The bootstrap's final migration intentionally replaces previous configuration
-values with this fork's realm preset, updates the legacy skill-override column
-default to 2000, removes the obsolete runtime one-time multiplier, creates the
-profession ledger, and seeds current account/character high-water values
-without retroactive XP. Existing unpaid 1000-point profession/achievement
-claims are upgraded once while their old authority rows still identify them;
-new profession skill-up awards store the final universal value directly.
-Legacy per-skill rows remain for schema compatibility but do not override that
-flat high-water contract.
+The Anniversary configuration migration intentionally replaces previous
+configuration values with this fork's realm preset, updates the legacy
+skill-override column default to 5000, removes the obsolete runtime one-time
+multiplier, creates the profession/recipe/achievement ledgers, and seeds
+existing skills, recipes, and achievements without retroactive XP. Migration
+`09` creates an empty durable
+account/faction reputation high-water and pending ledger; at runtime, the first
+Paragon-ready login seeds current standings from every account character
+without XP. Only later committed progress above that high-water pays the flat
+50 XP per point through post-commit ALE event 82.
+
+The same migration adds `paragon_collectible_account_item_xp` and
+`paragon_rewarded_account_item`. Both keys include `kind`, so an identical
+numeric ID in the toy and heirloom namespaces cannot overlap. The collection
+generator supplies an exact 78-ID toy catalog with explicit rarity-informed
+per-ID values (50,000 floor, 3,000,000 cap) and 38 heirlooms at exactly 100,000
+XP each. EZCollections' account toy/heirloom ownership rows are the runtime
+authority, and `--seed` records current ownership with zero pending XP.
+
+Migration `10_expand_skill_mastery_rewards.sql` expands the forward-only skill
+seed to all 14 professions, 15 canonical use-leveled weapon tracks, and
+lockpicking. Fist Weapons (473) canonicalizes to Unarmed (162). Defense (95),
+Dual Wield (118), Feral Combat (134), Shield (433), Riding (762), Runeforging
+(776), and direct auto-max grants remain excluded from awards. Existing values
+only raise the appropriate account- and character-scope high-water rows; they
+create no pending XP or backpay. The complete 12,700-point mastery catalog is
+worth 63,500,000 XP at the fixed 5,000-XP rate.
+
+Existing awarded and pending one-time XP is not reconciled; future rewards use
+the canonical values directly. Legacy per-skill rows remain for schema
+compatibility but do not override that flat high-water contract.
 
 The same bootstrap creates the PvP Merit claim ledger and writes every PvP
 economy value directly into `paragon_config`. There is no hidden global or
@@ -145,7 +197,7 @@ This dated export is retained only as historical reference. Do **not** execute
 it during an installation or upgrade: it drops tables, replaces data, omits
 newer Anniversary tables, and contains the unsupported legacy `GOLD` and
 `MOVE_SPEED` statistic rows. The canonical bootstrap already inserts all four
-categories and the 17 statistics implemented by the current runtime.
+categories and the 19 statistics implemented by the current runtime.
 
 ## Database Name
 

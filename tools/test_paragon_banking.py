@@ -114,21 +114,12 @@ class ParagonBankedRewardTests(unittest.TestCase):
         self.assertEqual(0, len(self.lua.globals().ExecutedSQL))
         self.assertEqual(0, len(self.lua.globals().Broadcasts))
 
-    def test_below_level_achievement_banks_authoritative_value(self):
+    def test_legacy_module_no_longer_accrues_new_achievement_rewards(self):
         self.lua.globals().Player.level = 79
-        achievement = self.lua.table_from(
-            {"GetId": self.lua.eval("function(_) return 9001 end")}
+        self.assertIsNone(
+            self.lua.globals().Mediators["OnBeforeAchievementExperience"]
         )
-        self.lua.globals().Mediators["OnBeforeAchievementExperience"](
-            self.lua.globals().Player, achievement, self.lua.globals().Paragon
-        )
-
-        self.assertIn(
-            "VALUES (77, 2000)", self.lua.globals().ExecutedSQL[1]
-        )
-        self.assertIn(
-            "amount = amount + 2000", self.lua.globals().ExecutedSQL[1]
-        )
+        self.assertEqual(0, len(self.lua.globals().ExecutedSQL))
 
 
 if __name__ == "__main__":

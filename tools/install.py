@@ -44,6 +44,7 @@ APPLY_PHASES = (
     "database-bootstrap",
     "static-data",
     "profession-data",
+    "recipe-data",
     "server-payload",
     "class-data",
     "content-and-client-dbc",
@@ -59,6 +60,7 @@ CHECK_PHASES = (
     "repository-tests",
     "static-data",
     "profession-data",
+    "recipe-data",
     "server-payload",
     "collection-xp",
     "quest-xp",
@@ -107,6 +109,7 @@ REQUIRED_ALE_TABLES = (
     "paragon_banked_experience",
     "paragon_codex_alloc",
     "paragon_collectible_item_xp",
+    "paragon_collectible_account_item_xp",
     "paragon_collectible_spell_xp",
     "paragon_config",
     "paragon_config_category",
@@ -117,10 +120,15 @@ REQUIRED_ALE_TABLES = (
     "paragon_config_statistic",
     "paragon_custom_glyph",
     "paragon_profession_progress",
+    "paragon_reputation_progress",
+    "paragon_recipe_reward_claim",
+    "paragon_recipe_reward_seed",
     "paragon_pvp_reward_claim",
     "paragon_racial_pick",
     "paragon_rare_kills",
     "paragon_rewarded_appearance",
+    "paragon_rewarded_achievement",
+    "paragon_rewarded_account_item",
     "paragon_rewarded_collectible_spell",
     "paragon_solo_clears",
 )
@@ -180,6 +188,11 @@ EXPECTED_SQL_COMPONENTS = (
     "sql/03_create_triggers.sql",
     "sql/04_insert_default_config.sql",
     "sql/05_apply_anniversary_config.sql",
+    "sql/06_add_recipe_rewards.sql",
+    "sql/07_add_achievement_reward_claims.sql",
+    "sql/08_add_collection_pending_claims.sql",
+    "sql/09_add_reputation_and_account_collection_rewards.sql",
+    "sql/10_expand_skill_mastery_rewards.sql",
 )
 
 # ``tools/install.py`` does not apply or build native patches.  It does,
@@ -196,6 +209,16 @@ NATIVE_SOURCE_CONTRACTS = (
                 "core kill-reward dispatch",
                 re.compile(
                     r"\bsScriptMgr\s*->\s*OnPlayerRewardKillRewarder\s*\("),
+            ),
+        ),
+    ),
+    (
+        "src/server/game/Reputation/ReputationMgr.cpp",
+        (
+            (
+                "post-commit reputation dispatch",
+                re.compile(
+                    r"\bsScriptMgr\s*->\s*OnPlayerAfterReputationChange\s*\("),
             ),
         ),
     ),
@@ -219,6 +242,12 @@ NATIVE_SOURCE_CONTRACTS = (
                 re.compile(
                     r"\bCALL_ENABLED_HOOKS\s*\(\s*PlayerScript\s*,\s*"
                     r"PLAYERHOOK_ON_OUTDOOR_PVP_OBJECTIVE\s*,"),
+            ),
+            (
+                "enabled PlayerScript post-reputation dispatch",
+                re.compile(
+                    r"\bCALL_ENABLED_HOOKS\s*\(\s*PlayerScript\s*,\s*"
+                    r"PLAYERHOOK_ON_AFTER_REPUTATION_CHANGE\s*,"),
             ),
         ),
     ),
@@ -316,6 +345,16 @@ NATIVE_SOURCE_CONTRACTS = (
                 re.compile(r"\bsALE\s*->\s*OnOutdoorPvPObjective\s*\("),
             ),
             (
+                "ALE post-reputation PlayerScript override",
+                re.compile(
+                    r"\bvoid\s+OnPlayerAfterReputationChange\s*\([^)]*\)\s*"
+                    r"override"),
+            ),
+            (
+                "ALE-to-Lua post-reputation call",
+                re.compile(r"\bsALE\s*->\s*OnAfterReputationChange\s*\("),
+            ),
+            (
                 "PvP battleground settlement tracking",
                 re.compile(
                     r"\bsPvPMeritTracker\.OnBattlegroundEndReward\s*\("),
@@ -366,6 +405,11 @@ NATIVE_SOURCE_CONTRACTS = (
                 re.compile(
                     r"\bPLAYER_EVENT_ON_PVP_DUEL_COMPLETE\s*=\s*81\b"),
             ),
+            (
+                "Lua player event 82 declaration",
+                re.compile(
+                    r"\bPLAYER_EVENT_ON_AFTER_REPUTATION_CHANGE\s*=\s*82\b"),
+            ),
         ),
     ),
     (
@@ -394,6 +438,10 @@ NATIVE_SOURCE_CONTRACTS = (
             (
                 "ALE PvP duel declaration",
                 re.compile(r"\bvoid\s+OnPvPDuelComplete\s*\("),
+            ),
+            (
+                "ALE post-reputation declaration",
+                re.compile(r"\bvoid\s+OnAfterReputationChange\s*\("),
             ),
         ),
     ),
@@ -440,6 +488,26 @@ NATIVE_SOURCE_CONTRACTS = (
                     r"\bSTART_HOOK\s*\(\s*PLAYER_EVENT_ON_KILL_REWARD\s*\)",
                     re.DOTALL),
             ),
+            (
+                "Lua event 82 emission",
+                re.compile(
+                    r"\bvoid\s+ALE::OnAfterReputationChange\s*\([^)]*\)\s*"
+                    r"\{.*?\bSTART_HOOK\s*\(\s*"
+                    r"PLAYER_EVENT_ON_AFTER_REPUTATION_CHANGE\s*\)",
+                    re.DOTALL),
+            ),
+        ),
+    ),
+    (
+        "modules/mod-ale/src/LuaEngine/methods/GlobalMethods.h",
+        (
+            (
+                "faction base-reputation Lua helper",
+                re.compile(
+                    r"\bint\s+GetFactionBaseReputation\s*\([^)]*\)\s*"
+                    r"\{.*?\bGetBaseReputationOf\s*\(",
+                    re.DOTALL),
+            ),
         ),
     ),
     (
@@ -478,6 +546,12 @@ NATIVE_SOURCE_CONTRACTS = (
                     r"\{\s*\"GetExpansion\"\s*,\s*"
                     r"&LuaMap::GetExpansion\s*\}"),
             ),
+            (
+                "faction base-reputation Lua registration",
+                re.compile(
+                    r"\{\s*\"GetFactionBaseReputation\"\s*,\s*"
+                    r"&LuaGlobalFunctions::GetFactionBaseReputation\s*\}"),
+            ),
         ),
     ),
 )
@@ -494,6 +568,7 @@ ALE_ENABLED_HOOK_LIST_CONTRACTS = (
             "PLAYERHOOK_ON_BATTLEGROUND_DESERTION",
             "PLAYERHOOK_ON_PVP_HONOR",
             "PLAYERHOOK_ON_OUTDOOR_PVP_OBJECTIVE",
+            "PLAYERHOOK_ON_AFTER_REPUTATION_CHANGE",
         ),
     ),
     (
@@ -580,7 +655,9 @@ def verify_native_source_contract(core_root: pathlib.Path) -> None:
             "patched native source contract is incomplete under %s:\n  - %s\n"
             "Apply the documented patches in order (especially "
             "patches/05-mod-ale.patch, patches/08-core-pvp-merit.patch, and "
-            "patches/09-mod-ale-pvp-merit.patch), rebuild the worldserver, "
+            "patches/09-mod-ale-pvp-merit.patch, "
+            "patches/10-core-reputation-xp.patch, and "
+            "patches/11-mod-ale-reputation-xp.patch), rebuild the worldserver, "
             "and rerun the installer." %
             (core_root, "\n  - ".join(failures)))
 
@@ -820,6 +897,17 @@ def profession_command(config: Config, check: bool) -> Tuple[str, ...]:
     return _python_command(config, "gen_profession_xp.py", *arguments)
 
 
+def recipe_command(config: Config, check: bool) -> Tuple[str, ...]:
+    arguments = ["--database-container", config.database_container]
+    if config.dbc_dir is not None:
+        arguments.extend(("--dbc-dir", str(config.dbc_dir)))
+    else:
+        arguments.extend(("--dbc-container", config.worldserver_container))
+    if check:
+        arguments.append("--check")
+    return _python_command(config, "gen_recipe_rewards.py", *arguments)
+
+
 def apply_commands(config: Config) -> Tuple[Tuple[str, ...], ...]:
     """Commands in execution order, exposed for contract tests and dry-run."""
     commands = [
@@ -831,6 +919,8 @@ def apply_commands(config: Config) -> Tuple[Tuple[str, ...], ...]:
     commands.extend((
         profession_command(config, False),
         profession_command(config, True),
+        recipe_command(config, False),
+        recipe_command(config, True),
         _python_command(config, "gen_class_talents.py", "--emit"),
         _python_command(config, "gen_class_trainers.py", "--emit"),
         _python_command(config, "paragon_client_patch.py", "--apply",
@@ -859,6 +949,7 @@ def check_commands(config: Config) -> Tuple[Tuple[str, ...], ...]:
                     for script in STATIC_GENERATORS)
     commands.extend((
         profession_command(config, True),
+        recipe_command(config, True),
         _python_command(config, "paragon_collectible_xp.py", "--check"),
         _python_command(config, "populate_quest_paragon_xp.py", "--check"),
         _python_command(config, "check_patch_collisions.py", "--ui-name",
@@ -891,6 +982,9 @@ def plan_lines(config: Config) -> List[str]:
             for _script in STATIC_GENERATORS:
                 lines.append("    " + _display_command(next(commands)))
         elif phase == "profession-data":
+            lines.append("    " + _display_command(next(commands)))
+            lines.append("    " + _display_command(next(commands)))
+        elif phase == "recipe-data":
             lines.append("    " + _display_command(next(commands)))
             lines.append("    " + _display_command(next(commands)))
         elif phase == "server-payload":
@@ -1407,10 +1501,16 @@ class Pipeline:
         sql = (
             "SELECT "
             "(SELECT COUNT(*) >= 88 FROM acore_ale.paragon_config),"
-            "(SELECT value = '2000' FROM acore_ale.paragon_config "
+            "(SELECT value = '5000' FROM acore_ale.paragon_config "
             " WHERE field='UNIVERSAL_SKILL_EXPERIENCE'),"
-            "(SELECT value = '2000' FROM acore_ale.paragon_config "
+            "(SELECT value = '10000' FROM acore_ale.paragon_config "
             " WHERE field='PARAGON_ACHIEVEMENT_POINT_XP'),"
+            "(SELECT value = '100000' FROM acore_ale.paragon_config "
+            " WHERE field='BASE_MAX_EXPERIENCE'),"
+            "(SELECT value = '0.029552484' FROM acore_ale.paragon_config "
+            " WHERE field='PARAGON_CURVE_R0'),"
+            "(SELECT value = '20' FROM acore_ale.paragon_config "
+            " WHERE field='PARAGON_CURVE_K'),"
             "(SELECT value = '1.25' FROM acore_ale.paragon_config "
             " WHERE field='PARAGON_CREATURE_XP_TBC_HEROIC_DUNGEON_MULTIPLIER'),"
             "(SELECT value = '1.5' FROM acore_ale.paragon_config "
@@ -1423,7 +1523,17 @@ class Pipeline:
             " WHERE field='PARAGON_CREATURE_XP_WOTLK_HEROIC_RAID_MULTIPLIER'),"
             "(SELECT COUNT(*) = 0 FROM acore_ale.paragon_config "
             " WHERE field='PARAGON_ONE_TIME_XP_MULTIPLIER'),"
-            "(SELECT COUNT(*) > 0 FROM acore_ale.paragon_collectible_spell_xp),"
+            "(SELECT COUNT(*) = 23185 FROM acore_ale.paragon_collectible_item_xp),"
+            "(SELECT COALESCE(SUM(xp),0) = 354984000 "
+            " FROM acore_ale.paragon_collectible_item_xp),"
+            "(SELECT COUNT(*) = 311 FROM acore_ale.paragon_collectible_spell_xp "
+            " WHERE kind='mount'),"
+            "(SELECT COALESCE(SUM(xp),0) = 187933000 "
+            " FROM acore_ale.paragon_collectible_spell_xp WHERE kind='mount'),"
+            "(SELECT COUNT(*) = 205 FROM acore_ale.paragon_collectible_spell_xp "
+            " WHERE kind='companion'),"
+            "(SELECT COALESCE(SUM(xp),0) = 83525000 "
+            " FROM acore_ale.paragon_collectible_spell_xp WHERE kind='companion'),"
             "(SELECT COUNT(*) > 0 FROM acore_ale.paragon_config_experience_quest),"
             "(SELECT COUNT(*) >= 764 FROM acore_world.spell_dbc "
             " WHERE ID >= 1900000 AND ID < 2000000),"
@@ -1435,6 +1545,41 @@ class Pipeline:
             "(SELECT COUNT(*) = 1 FROM information_schema.tables "
             " WHERE table_schema='acore_ale' "
             " AND table_name='paragon_profession_progress'),"
+            "(SELECT COUNT(*) = 1 FROM information_schema.tables "
+            " WHERE table_schema='acore_ale' "
+            " AND table_name='paragon_recipe_reward_claim' "
+            " AND engine='InnoDB'),"
+            "(SELECT COUNT(*) = 1 FROM information_schema.tables "
+            " WHERE table_schema='acore_ale' "
+            " AND table_name='paragon_recipe_reward_seed' "
+            " AND engine='InnoDB'),"
+            "(SELECT COUNT(*) = 1 FROM information_schema.tables "
+            " WHERE table_schema='acore_ale' "
+            " AND table_name='paragon_rewarded_achievement' "
+            " AND engine='InnoDB'),"
+            "(SELECT COUNT(*) = 1 FROM information_schema.columns "
+            " WHERE table_schema='acore_ale' "
+            " AND table_name='paragon_rewarded_achievement' "
+            " AND column_name='pending_xp' AND data_type='bigint' "
+            " AND column_type LIKE '%unsigned%' AND is_nullable='NO'),"
+            "(SELECT COUNT(*) = 1 FROM information_schema.columns "
+            " WHERE table_schema='acore_ale' "
+            " AND table_name='paragon_rewarded_collectible_spell' "
+            " AND column_name='pending_xp' AND data_type='bigint' "
+            " AND column_type LIKE '%unsigned%' AND is_nullable='NO'),"
+            "(SELECT COUNT(*) = 1 FROM information_schema.columns "
+            " WHERE table_schema='acore_ale' "
+            " AND table_name='paragon_rewarded_appearance' "
+            " AND column_name='pending_xp' AND data_type='bigint' "
+            " AND column_type LIKE '%unsigned%' AND is_nullable='NO'),"
+            "(SELECT COUNT(*) = 2 FROM information_schema.statistics "
+            " WHERE table_schema='acore_ale' "
+            " AND table_name='paragon_rewarded_collectible_spell' "
+            " AND index_name='ix_paragon_collectible_spell_pending'),"
+            "(SELECT COUNT(*) = 2 FROM information_schema.statistics "
+            " WHERE table_schema='acore_ale' "
+            " AND table_name='paragon_rewarded_appearance' "
+            " AND index_name='ix_paragon_appearance_pending'),"
             "(SELECT COUNT(*) = 1 FROM information_schema.tables "
             " WHERE table_schema='acore_ale' "
             " AND table_name='paragon_pvp_reward_claim' "
@@ -1479,11 +1624,12 @@ class Pipeline:
             " AND character_maximum_length=32);")
         output = self._mysql(sql, capture=True).strip().splitlines()
         values = output[-1].split("\t") if output else []
-        if values != ["1"] * 23:
+        expected_check_count = sql.count("(SELECT ")
+        if values != ["1"] * expected_check_count:
             raise InstallError(
                 "database verification failed (config, instance creature XP, direct one-time XP, "
-                "collection/quest rows, content, achievements, profession "
-                "progress, PvP Merit, categories, statistics, or type_value schema is "
+                "exact collection budgets, quest rows, content, achievements, profession "
+                "and recipe progress, PvP Merit, categories, statistics, or type_value schema is "
                 "incomplete): %s" % (values or "no output"))
 
     def apply(self) -> None:
@@ -1501,6 +1647,9 @@ class Pipeline:
                 for _script in STATIC_GENERATORS:
                     self.command(next(commands))
             elif phase == "profession-data":
+                self.command(next(commands))
+                self.command(next(commands))
+            elif phase == "recipe-data":
                 self.command(next(commands))
                 self.command(next(commands))
             elif phase == "server-payload":
@@ -1551,6 +1700,8 @@ class Pipeline:
                 for _script in STATIC_GENERATORS:
                     self.command(next(commands))
             elif phase == "profession-data":
+                self.command(next(commands))
+            elif phase == "recipe-data":
                 self.command(next(commands))
             elif phase == "server-payload":
                 self.verify_tree(self.config.paragon_source,

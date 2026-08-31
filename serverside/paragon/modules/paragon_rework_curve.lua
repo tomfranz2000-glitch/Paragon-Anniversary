@@ -4,7 +4,7 @@
 
     Replaces upstream's linear cost (BASE_MAX_EXPERIENCE x level) with:
 
-        cost(1) = BASE_MAX_EXPERIENCE            (30,000)
+        cost(1) = BASE_MAX_EXPERIENCE            (100,000)
         cost(L) = cost(L-1) x (1 + r0 / (1 + L/k))
 
     Config fields (paragon_config): PARAGON_CURVE_R0, PARAGON_CURVE_K.
@@ -22,8 +22,8 @@ local cost_cache = {}
 local cached_params = nil
 
 local function CurveParams()
-    return tonumber(Config:GetByField("BASE_MAX_EXPERIENCE")) or 30000,
-        tonumber(Config:GetByField("PARAGON_CURVE_R0")) or 0.0429,
+    return tonumber(Config:GetByField("BASE_MAX_EXPERIENCE")) or 100000,
+        tonumber(Config:GetByField("PARAGON_CURVE_R0")) or 0.029552484,
         tonumber(Config:GetByField("PARAGON_CURVE_K")) or 20
 end
 

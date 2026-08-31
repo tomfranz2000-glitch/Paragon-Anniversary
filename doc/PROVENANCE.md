@@ -28,13 +28,16 @@ network service, the licence requires you to offer its source to users.
 
 | what | why |
 |---|---|
-| `mod-eluna` cloned as **`modules/mod-ale`** + `patches/05-mod-ale.patch` | the core configures Lua only for that module directory name; the server Lua also needs two hooks and an `IsPlayerBot` method stock ALE does not have |
+| the pinned playerbot AzerothCore + `patches/01-core-paragon.patch`, `02-core-profession-xp.patch`, `08-core-pvp-merit.patch`, and `10-core-reputation-xp.patch` (`04` for the Docker build cap) | Paragon needs the base core changes, authoritative profession/PvP attribution, and a post-commit reputation dispatch; stock or partially patched cores are rejected by the installer |
+| `mod-eluna` cloned as **`modules/mod-ale`** + `patches/05-mod-ale.patch`, `07-mod-ale-profession-xp.patch`, `09-mod-ale-pvp-merit.patch`, and `11-mod-ale-reputation-xp.patch` | the core configures Lua only for that module directory name; Paragon also needs the complete ALE event bridge, event 82, the faction-base reputation helper, and `IsPlayerBot` support absent from stock ALE |
 | [`tomfranz2000-glitch/mod-transmog`](https://github.com/tomfranz2000-glitch/mod-transmog), branch `master`, pinned at `31633595cad7b12042b6484ffe3ea34f355b9821` | `paragon_transmog_bonus.lua` and `paragon_collection_rewards.lua` read `custom_unlocked_appearances`; the pinned fork also captures appearances in `StoreNewItem` and carries the required configuration defaults |
-| `mod-collections` (optional) | the collection XP source reads `account_collection_*`; without it those awards are simply zero |
-| a core with `patches/01-core-paragon.patch` applied | 13 files |
+| `mod-collections` (optional) | the mount/companion collection source reads `account_collection_spell`; without it those awards are simply zero |
+| [EZCollections](https://github.com/tomfranz2000-glitch/ezcollections-azerothcore) (optional) | toy and heirloom rewards read its authoritative `account_collection_toy` and `account_collection_heirloom` ownership rows; without them those awards are zero |
 
 ## Relationship to the other repos in this split
 
-`ezcollections` and `allthethings` are independent. Paragon reads two of their
-tables where present and degrades to zero rewards where absent; neither reads
-anything of Paragon's.
+`ezcollections` and `allthethings` are independent sibling projects.
+Paragon reads only EZCollections' two account ownership tables when they are
+present and degrades toy/heirloom rewards to zero when they are absent.
+AllTheThings has no Paragon runtime table dependency, and neither sibling reads
+or mutates Paragon's ledgers.

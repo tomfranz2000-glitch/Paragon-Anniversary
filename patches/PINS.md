@@ -10,12 +10,15 @@
 | `07-mod-ale-profession-xp.patch` | `github.com/azerothcore/mod-eluna` | `9e5b8c66efeb383871ec58b925e47094c92cc8d5` |
 | `08-core-pvp-merit.patch` | same playerbot core as `01` | `efe123fab543c5faf3c477674ec17a18fd59f09f` |
 | `09-mod-ale-pvp-merit.patch` | `github.com/azerothcore/mod-eluna` | `9e5b8c66efeb383871ec58b925e47094c92cc8d5` |
+| `10-core-reputation-xp.patch` | same playerbot core as `01` | `efe123fab543c5faf3c477674ec17a18fd59f09f` |
+| `11-mod-ale-reputation-xp.patch` | `github.com/azerothcore/mod-eluna` | `9e5b8c66efeb383871ec58b925e47094c92cc8d5` |
 
-Apply the core patches in `01`, `02`, `04`, `08` order. Apply the mod-ale
-patches in `05`, `07`, `09` order. The profession-XP and PvP-Merit patches are
-deliberately separate layers: `02` expects the core state produced by `01`,
-`08` expects `01` + `02` + `04`, `07` expects the ALE state produced by `05`,
-and `09` expects `05` + `07`.
+Apply the core patches in `01`, `02`, `04`, `08`, `10` order. Apply the mod-ale
+patches in `05`, `07`, `09`, `11` order. The profession-XP, PvP-Merit, and
+reputation patches are deliberately separate layers: `02` expects the core
+state produced by `01`, `08` expects `01` + `02` + `04`, and `10` follows that
+core stack; `07` expects the ALE state produced by `05`, `09` expects `05` +
+`07`, and `11` follows `05` + `07` + `09`.
 
 This fork itself is based on `Grim-Batol/Paragon-Anniversary` @ `a3cb1bb5d9b3983154b9e7a71459b199fcea0d9f`.
 Its sole authoritative install branch is `main` at
@@ -78,6 +81,12 @@ enchantment-slot range. The follow-up
 `09-mod-ale-pvp-merit.patch` add authoritative bridge events 77-81 for
 post-rate credited honor, per-player battleground/arena settlement,
 Wintergrasp settlement, legacy OutdoorPvP objectives, and completed duels.
+`10-core-reputation-xp.patch` emits the final old/new absolute standings only
+after `ReputationMgr` commits a change. `11-mod-ale-reputation-xp.patch`
+forwards that observation as Lua player event 82 and exposes
+`GetFactionBaseReputation(factionId, raceId, classId)` so current account
+standings can seed without backpay. Legacy pre-commit event 15 is not the
+Paragon reputation award source.
 For event 77, real battleground IDs remain unchanged while context `253` means
 proven legacy OutdoorPvP honor and `254` means active
 Battlefield/Wintergrasp honor. Source 4 remains unclassified and must not be

@@ -34,9 +34,10 @@ while the generators execute.
 
 `tools/install.py` applies the canonical database bootstrap, regenerates all
 server/client data, deploys Lua/ALE extensions and the addon, seeds existing
-collections without retroactive XP, builds the three owned MPQs, and verifies
-the complete payload. Its preflight also verifies the required patched C++
-source in `--core-root`. `--apply` is rerunnable. `--check` is read-only, while
+one-time collection claims without retroactive XP, builds the three owned MPQs,
+and verifies the complete payload. Its preflight also verifies the required
+patched C++ source in `--core-root`. `--apply` is rerunnable. `--check` is
+read-only, while
 `--dry-run` prints the exact ordered plan without probing containers, reading
 secrets, writing files, or changing databases. Its checks privately rebuild all
 three MPQs and exactly compare every generator-owned database row, including
@@ -63,6 +64,9 @@ Required software and data:
   below, plus their own prerequisites
 - `mod-collections` when collection XP should include account-wide mounts and
   companions; without it those awards remain zero
+- EZCollections when collection XP should include toys and heirlooms; Paragon
+  treats its account ownership rows as authoritative, and those awards remain
+  zero when the rows are unavailable
 
 Component tools use `PARAGON_CLIENT_DATA` for the real client `Data` directory;
 it points to `Data`, not the WoW root. The canonical installer derives the same
@@ -180,6 +184,8 @@ Apply each patch from the repository named in the second column:
 | `patches/07-mod-ale-profession-xp.patch` | `modules/mod-ale` | Yes; apply after `05` |
 | `patches/08-core-pvp-merit.patch` | AzerothCore root | Yes; PvP activity and settlement bridge |
 | `patches/09-mod-ale-pvp-merit.patch` | `modules/mod-ale` | Yes; apply after `05` and `07` |
+| `patches/10-core-reputation-xp.patch` | AzerothCore root | Yes; post-commit reputation dispatch |
+| `patches/11-mod-ale-reputation-xp.patch` | `modules/mod-ale` | Yes; event 82 and faction-base helper; apply after `05`, `07`, and `09` |
 
 Example:
 
@@ -189,17 +195,19 @@ git apply /path/to/Paragon-Anniversary/patches/01-core-paragon.patch
 git apply /path/to/Paragon-Anniversary/patches/02-core-profession-xp.patch
 git apply /path/to/Paragon-Anniversary/patches/04-core-docker-build-jobs.patch
 git apply /path/to/Paragon-Anniversary/patches/08-core-pvp-merit.patch
+git apply /path/to/Paragon-Anniversary/patches/10-core-reputation-xp.patch
 
 cd modules/mod-ale
 git apply /path/to/Paragon-Anniversary/patches/05-mod-ale.patch
 git apply /path/to/Paragon-Anniversary/patches/07-mod-ale-profession-xp.patch
 git apply /path/to/Paragon-Anniversary/patches/09-mod-ale-pvp-merit.patch
+git apply /path/to/Paragon-Anniversary/patches/11-mod-ale-reputation-xp.patch
 ```
 
-Keep the core patches in exact `01` → `02` → `04` → `08` order and the ALE
-patches in exact `05` → `07` → `09` order. The profession and PvP bridge
-layers depend on the preceding base patches and must not be folded into a
-different sequence.
+Keep the core patches in exact `01` → `02` → `04` → `08` → `10` order and the
+ALE patches in exact `05` → `07` → `09` → `11` order. The profession, PvP, and
+reputation bridge layers depend on the preceding base patches and must not be
+folded into a different sequence.
 
 Both installer modes reject a partial native patch before database or payload
 work begins. In particular, `modules/mod-ale/src/ALE_SC.cpp` must register
@@ -212,6 +220,10 @@ The same source preflight follows patches `08` and `09` across the core honor,
 battleground, battlefield, and outdoor-PvP dispatches; the ALE PlayerScript,
 BGScript, and BattlefieldScript enabled-hook lists; and Lua events 77–81. A
 checkout with only the Lua PvP module but a missing native bridge is rejected.
+It also follows patches `10` and `11` from the core's post-commit reputation
+dispatch through the enabled ALE PlayerScript hook to Lua event 82, including
+the faction-base reputation helper required to seed absolute standings. The
+legacy pre-commit reputation event 15 is not an award source.
 This is intentionally source-tree validation, not build-image provenance: after
 changing native source, rebuild the worldserver image before running it.
 
@@ -236,14 +248,18 @@ mysql [connection options] < sql/install.sql
 
 Run the direct form from the repository root: the mysql client resolves its
 `SOURCE` paths relative to its working directory. The entrypoint executes
-`01_create_database.sql` through `05_apply_anniversary_config.sql` in their
-required order and is safe to rerun for an upgrade. `05` intentionally
-reapplies the canonical Anniversary realm settings and raises existing
-profession high-water marks without awarding retroactive XP.
-
-There is no required `sql/06` file. `02_create_tables.sql` remains the single
-authoritative schema and creates all 22 base and Anniversary tables, including
-the five collection/codex support tables that older installs lacked.
+`01_create_database.sql` through
+`10_expand_skill_mastery_rewards.sql` in
+their required order and is safe to rerun for an upgrade.
+`02_create_tables.sql` remains the single authoritative fresh-install schema
+and creates all 28 base and Anniversary tables. `05` reapplies the canonical
+realm settings, `06` supplies recipe-ledger compatibility for existing
+installs, `07` seeds existing achievement claims, and `08` upgrades collection
+mirrors into crash-safe pending ledgers. `09` adds the account-wide faction
+high-water ledger plus typed toy/heirloom value and claim ledgers. `10` expands
+the mastery seed to weapon skills and lockpicking, canonicalizing Fist Weapons
+(473) to Unarmed (162). None of these migrations grants reconciliation or
+retroactive XP.
 
 Do not load `sql/11-13-2026_Example_Data.sql` on an existing realm. It is a
 destructive example/reference file and can replace configuration data.
@@ -261,10 +277,11 @@ WHERE field IN (
 );
 ```
 
-The Anniversary preset contains at least 88 settings, starts at 30,000 XP,
-and permits Paragon XP only from character level 80.
+The Anniversary preset contains exactly 90 settings on a clean install, starts
+at 100,000 XP, and permits Paragon XP only from character level 80. Upgraded
+realms may retain additional custom settings.
 
-## 4. Generate profession data and install server Lua
+## 4. Generate profession and recipe data, then install server Lua
 
 The populated `acore_world` database and the exact DBC set used by the rebuilt
 worldserver are both valuation inputs. The canonical installer generates and
@@ -295,14 +312,21 @@ python tools/gen_profession_xp.py \
     --dbc-container ac-worldserver --database-container ac-database
 python tools/gen_profession_xp.py \
     --dbc-container ac-worldserver --database-container ac-database --check
+python tools/gen_recipe_rewards.py \
+    --dbc-container ac-worldserver --database-container ac-database
+python tools/gen_recipe_rewards.py \
+    --dbc-container ac-worldserver --database-container ac-database --check
 ```
 
 For DBCs stored on the host, replace `--dbc-container` with
 `--dbc-dir /path/to/server/data/dbc`; the populated world database must still
-be available through `--database-container`. The first command rewrites
-`serverside/paragon/modules/paragon_profession_data.lua` and its audit; the
-second must exit successfully. If the server Lua was copied earlier, copy the
-regenerated package again. See
+be available through `--database-container`. These commands rewrite
+`serverside/paragon/modules/paragon_profession_data.lua`,
+`paragon_recipe_data.lua`, and their audits; both check commands must exit
+successfully. The recipe catalog is a strict final-craft-spell whitelist: the
+shipped snapshot contains 3,481 rewardable recipes totaling 140,000,000 XP and
+77 quarantined candidates. Existing spellbooks are version-seeded without XP.
+If the server Lua was copied earlier, copy the regenerated package again. See
 [`tools/PROFESSION_XP_GENERATOR.md`](../tools/PROFESSION_XP_GENERATOR.md) for the
 data model, overrides, caps, and audit contract.
 
@@ -426,7 +450,22 @@ python tools/populate_quest_paragon_xp.py
 Use `--seed` on the first install. It records already-owned collectibles in the
 one-time reward mirrors so existing collections do not grant a retroactive XP
 windfall. The tool also repopulates the collectible reward values and writes a
-review CSV under `tools/generated/`.
+review CSV under `tools/generated/`. The canonical contract is 23,185
+appearance item IDs totaling 354,984,000 XP, 311 mount spells totaling
+187,933,000 XP, 205 companion spells totaling 83,525,000 XP, an exact 78-item
+toy catalog totaling 43,500,000 XP, and 38 heirlooms totaling 3,800,000 XP.
+Every toy has an explicit per-ID acquisition-audit value: rarity scales the
+award, subject to a 50,000 XP floor and 3,000,000 XP cap. Every heirloom pays
+exactly 100,000 XP.
+
+Toy and heirloom runtime ownership comes from EZCollections'
+`account_collection_toy` and `account_collection_heirloom` rows: first
+successful toy use and first heirloom storage establish ownership, while mere
+inventory possession does not make a new runtime claim. Both the value table
+and account claim table include `kind` in their primary keys, so a toy and an
+heirloom with the same numeric item ID cannot overlap. Source-less
+player-facing appearance, mount, and companion entries use rare future-content
+values; NPC-equipment, test/QA, and placeholder records are quarantined.
 
 The quest generator replaces `paragon_config_experience_quest` with the full
 level-appropriate QuestXP values. Both tools are rerunnable, but their values
@@ -513,12 +552,19 @@ Run these checks:
 
 ```sql
 SELECT COUNT(*) AS settings FROM acore_ale.paragon_config;
-SELECT value AS profession_xp_per_point
+SELECT value AS skill_mastery_xp_per_point
 FROM acore_ale.paragon_config
 WHERE field = 'UNIVERSAL_SKILL_EXPERIENCE';
 SELECT value AS achievement_xp_per_point
 FROM acore_ale.paragon_config
 WHERE field = 'PARAGON_ACHIEVEMENT_POINT_XP';
+SELECT field, value AS reputation_xp_setting
+FROM acore_ale.paragon_config
+WHERE field IN (
+  'PARAGON_REPUTATION_XP_ENABLED',
+  'PARAGON_REPUTATION_XP_PER_POINT'
+)
+ORDER BY field;
 SELECT field, value AS instance_creature_xp_multiplier
 FROM acore_ale.paragon_config
 WHERE field IN (
@@ -543,8 +589,13 @@ SELECT COUNT(*) AS solo_achievements, SUM(Points) AS solo_points
 FROM acore_world.achievement_dbc
 WHERE ID BETWEEN 19000 AND 19304;
 SELECT COUNT(*) FROM acore_ale.paragon_collectible_spell_xp;
+SELECT kind, COUNT(*) AS ids, SUM(xp) AS total_xp,
+       MIN(xp) AS minimum_xp, MAX(xp) AS maximum_xp
+FROM acore_ale.paragon_collectible_account_item_xp
+GROUP BY kind
+ORDER BY kind;
 SELECT COUNT(*) FROM acore_ale.paragon_config_experience_quest;
-SELECT owner_type, COUNT(*) AS profession_rows, SUM(pending_xp) AS pending_xp
+SELECT owner_type, COUNT(*) AS mastery_rows, SUM(pending_xp) AS pending_xp
 FROM acore_ale.paragon_profession_progress
 GROUP BY owner_type;
 ```
@@ -553,22 +604,37 @@ On the authoritative `main` branch, the custom-spell coverage audit reports 743
 client-generated records plus 21 deliberately server-only records. Both title
 rows must be present on a fresh host. The solo-achievement query must report
 96 rows and 1,045 total points; Paragon reads those authoritative world rows
-for custom achievement XP. `profession_xp_per_point` and
-`achievement_xp_per_point` must both report `2000`, while
-`obsolete_runtime_multiplier` must report `0`. The five instance factors must
-report `1.25`, `1.5`, `2`, `2.5`, and `4` for their respective fields. The
+for custom achievement XP. `skill_mastery_xp_per_point` must report `5000` and
+`achievement_xp_per_point` must report `10000`, while
+the reputation settings must report enabled `1` and `50` XP per point.
+`obsolete_runtime_multiplier` must report `0`. The typed account-item query
+must report 78 toys totaling 43,500,000 XP with a 50,000 minimum and 3,000,000
+maximum, plus 38 heirlooms totaling 3,800,000 XP with both extrema at 100,000.
+The five instance factors must report `1.25`, `1.5`, `2`, `2.5`, and `4` for
+their respective fields. The
 worldserver console must not report a missing `Map:GetExpansion`; that message
 means patch 05 was not rebuilt into the running server.
 
 At login, the console must not report `SetData`/`GetData` errors. A level-80
-character should earn exactly 2000 Paragon XP for each genuinely new profession
-high-water point, unaffected by personal XP bonuses; weapon and
-riding skill-ups earn none. A point earned below level 80 should be recorded as
-final pending XP and paid unchanged at eligibility, while existing skills on
-upgrade must only seed their high-water
-marks. Successful craft/gather/process actions use the generated resource
+character should earn exactly 5,000 Paragon XP for each genuinely new eligible
+profession, weapon, or lockpicking high-water point, unaffected by personal XP
+bonuses. Fist Weapons (473) and Unarmed (162) must share one reward track.
+Defense (95), Dual Wield (118), Feral Combat (134), Shield (433), Riding (762),
+Runeforging (776), and direct auto-max grants must earn none. A point earned
+below level 80 should be recorded as final pending XP and paid unchanged at
+eligibility, while existing skills on upgrade must only seed their high-water
+marks. The full 12,700-point mastery catalog is worth 63,500,000 XP. Successful
+craft/gather/process actions use the generated resource
 valuation and do receive the normal personal XP modifier exactly once. The
-first Paragon level requires 30,000 XP with the Anniversary preset.
+first Paragon level requires 100,000 XP with the Anniversary preset.
+
+On the first Paragon-ready login, current standings from every character on the
+account must seed each canonical faction high-water without XP. A subsequent
+committed gain must arrive through post-commit ALE event 82 and pay exactly 50
+flat XP for each point above that account-wide high-water; losses and regains do
+not pay again. Current EZCollections toy/heirloom ownership is likewise seeded
+as zero-pending claims, and only later first ownership rows pay their explicit
+toy value or the fixed 100,000 XP heirloom value.
 
 ### Client verification
 

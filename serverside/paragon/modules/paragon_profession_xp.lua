@@ -3,10 +3,11 @@
 
     Two deliberately different reward lanes live here:
 
-      * genuine profession skill points are one-time completion progress. The
-        highest rewarded value is durable at account scope when Paragon is
-        account-linked (character scope otherwise), and the resulting XP is
-        flat and authoritative: it never crosses OnExperienceCalculated;
+      * eligible profession, weapon, and lockpicking skill points are one-time
+        mastery progress. The highest rewarded value is durable at account
+        scope when Paragon is account-linked (character scope otherwise), and
+        the resulting XP is flat and authoritative: it never crosses
+        OnExperienceCalculated;
       * successful craft/gather/process actions are repeatable. ALE event 76
         supplies a server action token and authoritative context, the generated
         profession data resolves the base amount, and the award crosses
@@ -38,8 +39,9 @@ local TOKEN_CACHE_KEY = "ParagonProfessionTokensV1"
 -- offline account/character scope be collected instead of growing forever.
 local PROGRESS_SCOPES = setmetatable({}, { __mode = "v" })
 
--- Exact AzerothCore WotLK IsProfessionSkill set. Weapon, defense, riding and
--- lockpicking skill lines are intentionally absent.
+-- Exact AzerothCore WotLK IsProfessionSkill set. This remains separate from
+-- the broader one-time mastery allowlist because event 76 must accept only
+-- real profession actions.
 local PROFESSION_SKILLS = {
     [129] = true, -- First Aid
     [164] = true, -- Blacksmithing
@@ -56,6 +58,48 @@ local PROFESSION_SKILLS = {
     [755] = true, -- Jewelcrafting
     [773] = true, -- Inscription
 }
+
+-- Genuine trainable weapon skill lines. Defense and Dual Wield also live in
+-- the client's "Weapon Skills" category, but the former is not a weapon and
+-- the latter is an automatically learned binary proficiency rather than a
+-- point-by-point skill. Fist Weapons and Unarmed are one conceptual track in
+-- AzerothCore: UpdateWeaponSkill emits both callbacks for the same attack, so
+-- canonicalizing 473 prevents a double reward.
+local WEAPON_SKILLS = {
+    [43] = true,  -- Swords
+    [44] = true,  -- Axes
+    [45] = true,  -- Bows
+    [46] = true,  -- Guns
+    [54] = true,  -- Maces
+    [55] = true,  -- Two-Handed Swords
+    [136] = true, -- Staves
+    [160] = true, -- Two-Handed Maces
+    [162] = true, -- Unarmed / Fist Weapons canonical track
+    [172] = true, -- Two-Handed Axes
+    [173] = true, -- Daggers
+    [176] = true, -- Thrown
+    [226] = true, -- Crossbows
+    [228] = true, -- Wands
+    [229] = true, -- Polearms
+    [473] = true, -- Fist Weapons (canonicalized to Unarmed)
+}
+
+local SKILL_ALIAS = {
+    [473] = 162, -- Fist Weapons -> Unarmed
+}
+
+local function CanonicalSkill(skill_id)
+    return SKILL_ALIAS[skill_id] or skill_id
+end
+
+local SKILLUP_SKILLS = {}
+for skill_id in pairs(PROFESSION_SKILLS) do
+    SKILLUP_SKILLS[skill_id] = true
+end
+for skill_id in pairs(WEAPON_SKILLS) do
+    SKILLUP_SKILLS[CanonicalSkill(skill_id)] = true
+end
+SKILLUP_SKILLS[633] = true -- Lockpicking
 
 -- This is the only bridge from ALE action kinds to Paragon source types.
 -- Keep it local and explicit so a core enum change is a one-table adjustment.
@@ -82,6 +126,15 @@ local function Integer(value)
     return integer
 end
 
+local function PersistedExperience(value)
+    value = tonumber(value)
+    if not value or value ~= value or value < 0
+            or value == math.huge or value == -math.huge then
+        return nil
+    end
+    return math.floor(value)
+end
+
 local function IsBot(player)
     return player and player.IsPlayerBot and player:IsPlayerBot()
 end
@@ -95,7 +148,7 @@ local function SystemEnabled()
 end
 
 local function SkillPointXP()
-    local value = Integer(Config:GetByField("UNIVERSAL_SKILL_EXPERIENCE")) or 2000
+    local value = Integer(Config:GetByField("UNIVERSAL_SKILL_EXPERIENCE")) or 5000
     return math.max(0, value)
 end
 
@@ -118,7 +171,13 @@ local function ScopeCache(player)
     local scope_key = tostring(owner_type) .. ":" .. tostring(owner_id)
     local cache = PROGRESS_SCOPES[scope_key]
     if not cache then
-        cache = { owner_type = owner_type, owner_id = owner_id, skills = {}, loaded_all = false }
+        cache = {
+            owner_type = owner_type,
+            owner_id = owner_id,
+            skills = {},
+            loaded_all = false,
+            settling = false,
+        }
         PROGRESS_SCOPES[scope_key] = cache
     end
     player:SetData(PROGRESS_CACHE_KEY, cache)
@@ -141,7 +200,7 @@ local function LoadState(player, skill_id)
         PROGRESS_TABLE, cache.owner_type, cache.owner_id, skill_id))
     if result then
         state.high_water = result:GetUInt32(0)
-        state.pending_xp = result:GetUInt64(1)
+        state.pending_xp = tonumber(result:GetString(1)) or 0
     end
     cache.skills[skill_id] = state
     return state, cache
@@ -163,10 +222,10 @@ local function LoadAllStates(player)
     if result then
         repeat
             local skill_id = result:GetUInt32(0)
-            if PROFESSION_SKILLS[skill_id] then
+            if SKILLUP_SKILLS[skill_id] then
                 local existing = cache.skills[skill_id]
                 local db_high_water = result:GetUInt32(1)
-                local db_pending = result:GetUInt64(2)
+                local db_pending = tonumber(result:GetString(2)) or 0
                 if existing then
                     -- Async writes may still be reaching the DB. Never let a
                     -- temporarily older row move the live session backward.
@@ -193,19 +252,47 @@ local function ExecuteSync(sql)
     CharDBQuery(sql)
 end
 
--- Durable monotonic high-water update plus an optional newly banked amount.
--- VALUES(pending_xp) is an increment, never a replacement; repeated Lua
--- callbacks are suppressed by the cached high-water before this statement.
-local function PersistProgress(cache, skill_id, high_water, pending_delta)
+local function Scalar(sql)
+    local result = CharDBQuery(sql)
+    if not result then
+        return nil
+    end
+    -- ALE pushes uint64 as userdata, for which Lua's tonumber returns nil.
+    -- GetString preserves the exact decimal value and converts portably.
+    return tonumber(result:GetString(0))
+end
+
+-- Atomically advance the durable high-water and bank only points not already
+-- represented by that row. Replaying the same callback after an ambiguous
+-- write cannot add pending XP twice because the stored high-water is already
+-- at `current`. The following read verifies the write before memory advances.
+local function PersistProgress(cache, skill_id, previous, current, point_xp)
+    local initial_pending = math.max(0, current - previous) * point_xp
     ExecuteSync(string.format([[
         INSERT INTO %s
             (owner_type, owner_id, skill_id, high_water, pending_xp)
         VALUES (%d, %d, %d, %d, %d)
         ON DUPLICATE KEY UPDATE
-            high_water = GREATEST(high_water, VALUES(high_water)),
-            pending_xp = pending_xp + VALUES(pending_xp);]],
+            pending_xp = pending_xp + GREATEST(
+                0, VALUES(high_water) - GREATEST(high_water, %d)) * %d,
+            high_water = GREATEST(high_water, VALUES(high_water));]],
         PROGRESS_TABLE, cache.owner_type, cache.owner_id, skill_id,
-        high_water, pending_delta or 0))
+        current, initial_pending, previous, point_xp))
+
+    local result = CharDBQuery(string.format(
+        "SELECT high_water, pending_xp FROM %s "
+            .. "WHERE owner_type = %d AND owner_id = %d AND skill_id = %d;",
+        PROGRESS_TABLE, cache.owner_type, cache.owner_id, skill_id))
+    if not result then
+        return nil
+    end
+    local stored_high_water = tonumber(result:GetUInt32(0))
+    local stored_pending = tonumber(result:GetString(1))
+    if not stored_high_water or stored_high_water < current
+            or not stored_pending or stored_pending < 0 then
+        return nil
+    end
+    return stored_high_water, stored_pending
 end
 
 local function ProgressionTarget(cache)
@@ -215,36 +302,75 @@ local function ProgressionTarget(cache)
     return DB .. ".character_paragon", "guid"
 end
 
--- Ensure the progression side of the later multi-table UPDATE exists. This is
--- a no-op for established players and records only the already-loaded state for
--- a first-time player; it never acknowledges pending profession XP.
-local function EnsureProgressionRow(player, cache)
-    local paragon = player:GetData("Paragon")
+local function CurrentProgression(player, cache)
+    local paragon = player and player:GetData("Paragon")
     local level = paragon and Integer(paragon:GetLevel())
-    local experience = paragon and Integer(paragon:GetExperience())
-    if not level or level <= 0 or not experience or experience < 0 then
-        return false
+    local experience = paragon and PersistedExperience(paragon:GetExperience())
+    if not paragon or not level or level <= 0 or experience == nil then
+        return nil
     end
-
     local table_name, id_column = ProgressionTarget(cache)
-    ExecuteSync(string.format(
-        "INSERT IGNORE INTO %s (%s, level, experience) VALUES (%d, %d, %d);",
-        table_name, id_column, cache.owner_id, level, experience))
-    return true
+    return {
+        paragon = paragon,
+        level = level,
+        experience = experience,
+        table_name = table_name,
+        id_column = id_column,
+        owner_id = cache.owner_id,
+    }
 end
 
--- Persist the awarded Paragon state and acknowledge every pending profession
--- row in one InnoDB multi-table UPDATE. A crash before this statement leaves
--- the pending write-ahead rows payable; a crash after it sees both effects.
-local function PersistAwardAndClear(player, cache)
-    local paragon = player:GetData("Paragon")
-    local level = paragon and Integer(paragon:GetLevel())
-    local experience = paragon and Integer(paragon:GetExperience())
-    if not level or level <= 0 or not experience or experience < 0 then
-        return false
-    end
+local function RefreshPending(cache)
+    return Scalar(string.format(
+        "SELECT COALESCE(SUM(pending_xp), 0) FROM %s "
+            .. "WHERE owner_type = %d AND owner_id = %d;",
+        PROGRESS_TABLE, cache.owner_type, cache.owner_id))
+end
 
-    local table_name, id_column = ProgressionTarget(cache)
+-- Checkpoint the persistable floor of live state before using it as the
+-- settlement CAS baseline. Do not mutate live memory before a durable commit.
+local function SyncCurrentProgression(current)
+    ExecuteSync(string.format(
+        "INSERT INTO %s (%s, level, experience) VALUES (%d, %d, %d) "
+            .. "ON DUPLICATE KEY UPDATE level = VALUES(level), "
+            .. "experience = VALUES(experience);",
+        current.table_name, current.id_column, current.owner_id,
+        current.level, current.experience))
+    return Scalar(string.format(
+        "SELECT COUNT(*) FROM %s WHERE %s = %d "
+            .. "AND level = %d AND experience = %d;",
+        current.table_name, current.id_column, current.owner_id,
+        current.level, current.experience)) == 1
+end
+
+local function ProjectProgression(current, amount)
+    local curve_cost = ParagonRework_CurveCost
+    if type(curve_cost) ~= "function" then
+        return nil
+    end
+    local cap = Integer(Config:GetByField("PARAGON_LEVEL_CAP")) or 0
+    local level = current.level
+    local experience = current.experience + amount
+    local cost = Integer(curve_cost(level))
+    if not cost or cost <= 0 then
+        return nil
+    end
+    while experience >= cost do
+        experience = experience - cost
+        if cap <= 0 or level < cap then
+            level = level + 1
+        end
+        cost = Integer(curve_cost(level))
+        if not cost or cost <= 0 then
+            return nil
+        end
+    end
+    return level, experience
+end
+
+-- Persist the projected state and acknowledge every pending mastery row in
+-- one InnoDB compare-and-swap. Verification makes a failed DML retryable.
+local function CommitPending(cache, current, level, experience)
     ExecuteSync(string.format([[
         UPDATE %s progression
         JOIN %s profession
@@ -254,10 +380,20 @@ local function PersistAwardAndClear(player, cache)
         SET progression.level = %d,
             progression.experience = %d,
             profession.pending_xp = 0
-        WHERE progression.%s = %d;]],
-        table_name, PROGRESS_TABLE, cache.owner_type, cache.owner_id,
-        level, experience, id_column, cache.owner_id))
-    return true
+        WHERE progression.%s = %d
+          AND progression.level = %d
+          AND progression.experience = %d;]],
+        current.table_name, PROGRESS_TABLE, cache.owner_type, cache.owner_id,
+        level, experience, current.id_column, current.owner_id,
+        current.level, current.experience))
+
+    local remaining = RefreshPending(cache)
+    local persisted = Scalar(string.format(
+        "SELECT COUNT(*) FROM %s WHERE %s = %d "
+            .. "AND level = %d AND experience = %d;",
+        current.table_name, current.id_column, current.owner_id,
+        level, experience))
+    return remaining == 0 and persisted == 1
 end
 
 local function CanPayNow(player)
@@ -266,7 +402,7 @@ local function CanPayNow(player)
         and player:GetData("Paragon") ~= nil
 end
 
--- Pays every pending profession point for the active progression scope as one
+-- Pays every pending mastery point for the active progression scope as one
 -- silent lump. A failed award leaves the durable rows and cache untouched.
 local function PayPending(player)
     if not CanPayNow(player) then
@@ -274,36 +410,45 @@ local function PayPending(player)
     end
 
     local cache = LoadAllStates(player)
-    if not cache then
+    if not cache or cache.settling then
         return false
     end
 
-    local pending = 0
-    for _, state in pairs(cache.skills) do
-        pending = pending + (Integer(state.pending_xp) or 0)
-    end
-    if pending <= 0 then
+    cache.settling = true
+    local ok, paid = pcall(function()
+        local pending = RefreshPending(cache)
+        local current = CurrentProgression(player, cache)
+        if not pending or pending <= 0 or not current
+                or not SyncCurrentProgression(current) then
+            return false
+        end
+
+        local level, experience = ProjectProgression(current, pending)
+        if not level or not CommitPending(
+                cache, current, level, experience) then
+            return false
+        end
+
+        local replay_ok, awarded = pcall(
+            Hook.AwardFlatExperience, player, SOURCE.SKILLUP, 0, pending)
+        if not replay_ok or not awarded
+                or current.paragon:GetLevel() ~= level
+                or current.paragon:GetExperience() ~= experience then
+            current.paragon:SetLevel(level)
+            current.paragon:SetExperience(experience)
+        end
+
+        for _, state in pairs(cache.skills) do
+            state.pending_xp = 0
+        end
+        return true
+    end)
+    cache.settling = false
+    if not ok then
+        print("[Paragon] profession skill-up settlement error: " .. tostring(paid))
         return false
     end
-
-    if not EnsureProgressionRow(player, cache) then
-        return false
-    end
-
-    if not Hook.AwardFlatExperience(player, SOURCE.SKILLUP, 0, pending) then
-        return false
-    end
-
-    if not PersistAwardAndClear(player, cache) then
-        return false
-    end
-
-    -- Event callbacks are serialized on the world thread. The durable state
-    -- and live cache are acknowledged in the same callback.
-    for _, state in pairs(cache.skills) do
-        state.pending_xp = 0
-    end
-    return true
+    return paid
 end
 
 local function SeedPlayer(player)
@@ -315,12 +460,19 @@ local function SeedPlayer(player)
         return
     end
 
-    for skill_id in pairs(PROFESSION_SKILLS) do
-        local current = 0
+    local function SkillValue(skill_id)
         if player.GetPureSkillValue then
-            current = Integer(player:GetPureSkillValue(skill_id)) or 0
+            return Integer(player:GetPureSkillValue(skill_id)) or 0
         elseif player.GetSkillValue then
-            current = Integer(player:GetSkillValue(skill_id)) or 0
+            return Integer(player:GetSkillValue(skill_id)) or 0
+        end
+        return 0
+    end
+
+    for skill_id in pairs(SKILLUP_SKILLS) do
+        local current = SkillValue(skill_id)
+        if skill_id == 162 then
+            current = math.max(current, SkillValue(473))
         end
         if current > 0 then
             CharDBExecute(string.format([[
@@ -349,7 +501,11 @@ local function OnSkillUpdate(event, player, skill_id, old_value, max_value, step
     end
 
     skill_id = Integer(skill_id)
-    if not skill_id or not PROFESSION_SKILLS[skill_id] then
+    if not skill_id then
+        return
+    end
+    skill_id = CanonicalSkill(skill_id)
+    if not SKILLUP_SKILLS[skill_id] then
         return
     end
 
@@ -368,26 +524,22 @@ local function OnSkillUpdate(event, player, skill_id, old_value, max_value, step
     -- it and durable high-water prevents a newly installed script from paying
     -- historical points even if its migration seed was missed.
     local baseline = math.max(previous, state.high_water or 0)
-    local points = math.max(0, current - baseline)
-    state.high_water = math.max(current, state.high_water or 0)
-    if points <= 0 then
-        PersistProgress(cache, skill_id, state.high_water, 0)
+    if current <= baseline then
         return
     end
 
-    local amount = points * SkillPointXP()
-    if amount <= 0 then
-        PersistProgress(cache, skill_id, state.high_water, 0)
+    -- The database row, not optimistic memory, decides which points are new.
+    -- Only update the shared account cache after the conditional write and its
+    -- verification both succeed.
+    local stored_high_water, stored_pending = PersistProgress(
+        cache, skill_id, previous, current, SkillPointXP())
+    if not stored_high_water then
         return
     end
+    state.high_water = stored_high_water
+    state.pending_xp = stored_pending
 
-    -- First make the new claim part of the durable pending ledger. This is a
-    -- write-ahead record: an interrupted/not-ready award remains payable, while
-    -- the shared high-water cache prevents same-process account-alt races.
-    state.pending_xp = (state.pending_xp or 0) + amount
-    PersistProgress(cache, skill_id, state.high_water, amount)
-
-    if CanPayNow(player) then
+    if stored_pending > 0 and CanPayNow(player) then
         local paragon = player:GetData("Paragon")
         paragon = Mediator.On("OnBeforeSkillExperience", {
             arguments = { player, skill_id, paragon },
@@ -515,7 +667,10 @@ print("[Paragon] Profession XP module loaded")
 
 return {
     ACTION_SOURCE = ACTION_SOURCE,
+    CanonicalSkill = CanonicalSkill,
     PROFESSION_SKILLS = PROFESSION_SKILLS,
+    SKILLUP_SKILLS = SKILLUP_SKILLS,
+    WEAPON_SKILLS = WEAPON_SKILLS,
     OnProfessionAction = OnProfessionAction,
     OnSkillUpdate = OnSkillUpdate,
     PayPending = PayPending,

@@ -1,0 +1,78 @@
+diff --git a/src/server/game/Reputation/ReputationMgr.cpp b/src/server/game/Reputation/ReputationMgr.cpp
+index 4c1c9eb..e79f84e 100644
+--- a/src/server/game/Reputation/ReputationMgr.cpp
++++ b/src/server/game/Reputation/ReputationMgr.cpp
+@@ -413,7 +413,8 @@ bool ReputationMgr::SetOneFactionReputation(FactionEntry const* factionEntry, fl
+         else if (standing < Reputation_Bottom)
+             standing = Reputation_Bottom;
+ 
+-        ReputationRank old_rank = ReputationToRank(itr->second.Standing + BaseRep);
++        int32 oldStanding = itr->second.Standing + BaseRep;
++        ReputationRank old_rank = ReputationToRank(oldStanding);
+         ReputationRank new_rank = ReputationToRank(standing);
+         if (repMaxCap && new_rank > *repMaxCap)
+         {
+@@ -452,6 +453,9 @@ bool ReputationMgr::SetOneFactionReputation(FactionEntry const* factionEntry, fl
+             _player->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_GAIN_REVERED_REPUTATION, factionEntry->ID);
+             _player->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_GAIN_HONORED_REPUTATION, factionEntry->ID);
+ 
++            sScriptMgr->OnPlayerAfterReputationChange(
++                _player, factionEntry->ID, oldStanding, standing, incremental);
++
+             return true;
+         }
+     }
+diff --git a/src/server/game/Scripting/ScriptDefines/PlayerScript.cpp b/src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
+index e67f2e1..5989d2c 100644
+--- a/src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
++++ b/src/server/game/Scripting/ScriptDefines/PlayerScript.cpp
+@@ -148,6 +148,13 @@ bool ScriptMgr::OnPlayerReputationChange(Player* player, uint32 factionID, int32
+     CALL_ENABLED_BOOLEAN_HOOKS(PlayerScript, PLAYERHOOK_ON_REPUTATION_CHANGE, !script->OnPlayerReputationChange(player, factionID, standing, incremental));
+ }
+ 
++void ScriptMgr::OnPlayerAfterReputationChange(Player* player, uint32 factionID, int32 oldStanding, int32 newStanding,
++    bool incremental)
++{
++    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_AFTER_REPUTATION_CHANGE,
++        script->OnPlayerAfterReputationChange(player, factionID, oldStanding, newStanding, incremental));
++}
++
+ void ScriptMgr::OnPlayerReputationRankChange(Player* player, uint32 factionID, ReputationRank newRank, ReputationRank oldRank, bool increased)
+ {
+     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_REPUTATION_RANK_CHANGE, script->OnPlayerReputationRankChange(player, factionID, newRank, oldRank, increased));
+diff --git a/src/server/game/Scripting/ScriptDefines/PlayerScript.h b/src/server/game/Scripting/ScriptDefines/PlayerScript.h
+index 249fb12..f03eca2 100644
+--- a/src/server/game/Scripting/ScriptDefines/PlayerScript.h
++++ b/src/server/game/Scripting/ScriptDefines/PlayerScript.h
+@@ -232,6 +232,7 @@ enum PlayerHook
+     PLAYERHOOK_ON_PROFESSION_ACTION,
+     PLAYERHOOK_ON_PVP_HONOR,
+     PLAYERHOOK_ON_OUTDOOR_PVP_OBJECTIVE,
++    PLAYERHOOK_ON_AFTER_REPUTATION_CHANGE,
+     PLAYERHOOK_END
+ };
+ 
+@@ -324,6 +325,10 @@ public:
+     // Called when a player's reputation changes (before it is actually changed)
+     virtual bool OnPlayerReputationChange(Player* /*player*/, uint32 /*factionID*/, int32& /*standing*/, bool /*incremental*/) { return true; }
+ 
++    // Called after a player's reputation change has been committed
++    virtual void OnPlayerAfterReputationChange(Player* /*player*/, uint32 /*factionID*/, int32 /*oldStanding*/,
++        int32 /*newStanding*/, bool /*incremental*/) { }
++
+     // Called when a player's reputation rank changes (before it is actually changed)
+     virtual void OnPlayerReputationRankChange(Player* /*player*/, uint32 /*factionID*/, ReputationRank /*newRank*/, ReputationRank /*olRank*/, bool /*increased*/) { }
+ 
+diff --git a/src/server/game/Scripting/ScriptMgr.h b/src/server/game/Scripting/ScriptMgr.h
+index 449a861..5f6fbd4 100644
+--- a/src/server/game/Scripting/ScriptMgr.h
++++ b/src/server/game/Scripting/ScriptMgr.h
+@@ -336,6 +336,8 @@ public: /* PlayerScript */
+     void OnPlayerBeforeSendLoot(Player* player, ObjectGuid lootGuid, Loot* loot);
+     void OnPlayerGiveXP(Player* player, uint32& amount, Unit* victim, uint8 xpSource);
+     bool OnPlayerReputationChange(Player* player, uint32 factionID, int32& standing, bool incremental);
++    void OnPlayerAfterReputationChange(Player* player, uint32 factionID, int32 oldStanding, int32 newStanding,
++        bool incremental);
+     void OnPlayerReputationRankChange(Player* player, uint32 factionID, ReputationRank newRank, ReputationRank oldRank, bool increased);
+     void OnPlayerGiveReputation(Player* player, int32 factionID, float& amount, ReputationSource repSource);
+     void OnPlayerLearnSpell(Player* player, uint32 spellID);
