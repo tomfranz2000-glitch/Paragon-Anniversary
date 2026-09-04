@@ -52,6 +52,7 @@ ParagonCodexData = {
 
 local PREFIX = "ParagonCodex"
 local built = false
+local hoveredNode
 
 local ATTR_LABEL = {
     [1] = "Might", [3] = "Grace", [5] = "Fortitude",
@@ -157,6 +158,7 @@ end
 local function Node_OnEnter(self)
     local def = self.codexDef
     if not def then return end
+    hoveredNode = self
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:ClearLines()
     GameTooltip:AddLine(def.name, 1, 0.82, 0, false)
@@ -170,6 +172,16 @@ local function Node_OnEnter(self)
         GameTooltip:AddLine(def.desc, 1, 1, 1, true)
     end
     GameTooltip:AddLine(BonusText(def), 0, 1, 0, false)
+
+    -- Wrath's character sheet has no Holy Resistance row, even though the
+    -- server exposes it through UnitResistance and both ward nodes grant it.
+    -- Keep that otherwise invisible sixth resistance inspectable here.
+    if def.id == 30 or def.id == 31 then
+        local _, holyResistance = UnitResistance("player", 1)
+        local holyName = _G.RESISTANCE1_NAME or "Holy Resistance"
+        GameTooltip:AddLine(string.format("Current %s: %d", holyName,
+            holyResistance or 0), 0.65, 0.8, 1, false)
+    end
     if ClassDenied(def) then
         GameTooltip:AddLine(def.deniedText or "Your class cannot use this.", 1, 0.3, 0.3, true)
         GameTooltip:Show()
@@ -199,6 +211,23 @@ local function Node_OnEnter(self)
         end
     end
     GameTooltip:Show()
+end
+
+local function Node_OnLeave(self)
+    if hoveredNode == self then
+        hoveredNode = nil
+    end
+    GameTooltip:Hide()
+end
+
+-- Purchases and server reconciles can complete while the mouse remains over
+-- a node. Rebuild the owned rank, current bonus, gate, and next-cost lines in
+-- place instead of leaving the tooltip stale until the cursor moves away.
+local function RefreshOpenTooltip()
+    if hoveredNode and GameTooltip:IsShown()
+        and GameTooltip:GetOwner() == hoveredNode then
+        Node_OnEnter(hoveredNode)
+    end
 end
 
 local function Node_OnClick(self, button)
@@ -243,7 +272,7 @@ local function CreateNode(parent, def, diameter)
     node.codexDef = def
     node:EnableMouse(true)
     node:SetScript("OnEnter", Node_OnEnter)
-    node:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    node:SetScript("OnLeave", Node_OnLeave)
     node:SetScript("OnMouseUp", Node_OnClick)
     SetPortraitToTexture(node.Icon, def.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
     if node.Level then
@@ -496,7 +525,7 @@ local function BuildPanel()
         plaque.codexDef = def
         plaque:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         plaque:SetScript("OnEnter", Node_OnEnter)
-        plaque:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        plaque:SetScript("OnLeave", Node_OnLeave)
         plaque:SetScript("OnClick", Node_OnClick)
         ParagonCodexData.plaques[def.id] = plaque
     end
@@ -559,6 +588,7 @@ local function Refresh()
         UIParagonCodexPoints:SetText(string.format("|cffffd100%d|r unspent point%s",
             ParagonCodexData.available, ParagonCodexData.available == 1 and "" or "s"))
     end
+    RefreshOpenTooltip()
 end
 
 --- The micro-button notification keys off ParagonData.availablePoints;
@@ -590,6 +620,9 @@ function ParagonCodex_OnState(player, arg_table)
     ParagonCodexData.bonus = type(data.bonus) == "table" and data.bonus or {}
     Refresh()
     SyncStockPoints()
+    if ParagonScalingRefreshPaperDoll then
+        ParagonScalingRefreshPaperDoll()
+    end
 end
 
 function ParagonCodex_OnDefinitions(player, arg_table)
@@ -602,6 +635,9 @@ function ParagonCodex_OnDefinitions(player, arg_table)
     end
     BuildPanel()
     Refresh()
+    if ParagonScalingRefreshPaperDoll then
+        ParagonScalingRefreshPaperDoll()
+    end
 end
 
 -- ============================================================================

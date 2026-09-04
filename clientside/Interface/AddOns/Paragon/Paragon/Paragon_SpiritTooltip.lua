@@ -1,4 +1,4 @@
--- Paragon milestone 375 (Empowered Spirit): the character sheet's actual
+-- Paragon milestone 600 (Empowered Spirit): the character sheet's actual
 -- Mana Regen numbers come from server-sent fields and already show the
 -- tripled values — but the Spirit stat's tooltip flavor line is computed
 -- CLIENT-side from the stock formula (GetUnit*RegenRateFromSpirit) and
@@ -29,25 +29,41 @@ local function SpiritRegenUnlocked()
     return false
 end
 
--- Milestones 500/800 (scaling level): spirit->MANA regen converts by the
--- gtRegenMPPerSpt ratio for the SUMMED reduction ParagonScalingUnlocked()
--- reports, on top of the x3 (the health table is flat at these levels, so
--- the health line keeps plain MULT). Keyed like the rating factors.
-local SCALING_MANA_FACTOR = { [2] = 1.1085, [4] = 1.2287, [5] = 1.293572 }
+-- Effective-level scaling (reward track plus Timeless Body): spirit->MANA
+-- regen converts by the gtRegenMPPerSpt ratio for the SUMMED reduction
+-- ParagonScalingUnlocked() reports. Timeless Body unlocks before Empowered
+-- Spirit, so scaling must also work with a plain x1 spirit multiplier. The
+-- health tables are flat from levels 72 through 80 and need no level factor.
+local SCALING_MANA_FACTOR = {
+    [1] = 1.0529148,
+    [2] = 1.1085202,
+    [3] = 1.1668161,
+    [4] = 1.2286995,
+    [5] = 1.2935725,
+    [6] = 1.3617339,
+    [7] = 1.4337818,
+    [8] = 1.5094170,
+}
 
 hooksecurefunc("PaperDollFrame_SetStat", function(statFrame, statIndex)
-    if statIndex ~= 5 or not SpiritRegenUnlocked() then
+    if statIndex ~= 5 then
         return
     end
-    local health = floor(GetUnitHealthRegenRateFromSpirit("player") * MULT + 0.5)
+    local spiritMult = SpiritRegenUnlocked() and MULT or 1
+    local reduction = ParagonScalingUnlocked and ParagonScalingUnlocked()
+    local manaFactor = reduction and SCALING_MANA_FACTOR[reduction] or 1
+    if spiritMult == 1 and manaFactor == 1 then
+        return
+    end
+
+    -- DEFAULT_STAT5_TOOLTIP uses %d, matching stock positive-number
+    -- truncation. Do not round up here.
+    local health = floor(GetUnitHealthRegenRateFromSpirit("player") * spiritMult)
     statFrame.tooltip2 = format(_G["DEFAULT_STAT5_TOOLTIP"], health)
     if UnitHasMana("player") then
-        local manaMult = MULT
-        local reduction = ParagonScalingUnlocked and ParagonScalingUnlocked()
-        if reduction and SCALING_MANA_FACTOR[reduction] then
-            manaMult = MULT * SCALING_MANA_FACTOR[reduction]
-        end
-        local regen = floor(GetUnitManaRegenRateFromSpirit("player") * manaMult * 5.0)
+        local manaMult = spiritMult * manaFactor
+        local regen = floor(GetUnitManaRegenRateFromSpirit("player")
+            * manaMult * 5.0)
         statFrame.tooltip2 = statFrame.tooltip2 .. "\n" .. format(MANA_REGEN_FROM_SPIRIT, regen)
     end
 end)

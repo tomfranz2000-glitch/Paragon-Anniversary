@@ -391,7 +391,7 @@ if (slow)
 
 Reverting = delete the one `if` block; the marker aura then does nothing.
 
-## 1g. C++ patch — stat-scaling level (paragon levels 500 + 800, universal)
+## 1g. C++ patch — stat-scaling level (track 700/925/1350 + Timeless Body, universal)
 
 **Files**: `src/server/game/Entities/Player/Player.h` (one decl) and
 `Player.cpp`: new helper `Player::GetStatScalingLevel()` + the identical
@@ -401,43 +401,70 @@ replaced with it: `GetMeleeCritFromAgility`, `GetDodgeFromAgility`,
 `OCTRegenMPPerSpirit`.
 
 The helper returns the GT-clamped level minus the **SUM** of the EFFECT_0
-basepoints of markers **1900039** (milestone 500) and **1900072**
-(milestone 800) — a second milestone needs a second marker because an aura
-cannot stack with itself. Clamped ≥ 1; without markers it is bit-identical
-to the old prologue. Those six functions are the COMPLETE gt-table stat
-conversion surface — nothing else (combat level, hit vs targets, XP, spell
-requirements, skill caps) is touched.
+amounts of all six production markers: **1900039** (milestone 700, −2),
+**1900072** (milestone 925, −2), **1900131** (milestone 1350, −1), and
+**1900096–1900098** (Timeless Body ranks I–III, −1 each). Separate markers
+are required because an aura cannot stack with itself. The result is clamped
+≥ 1; without markers it is bit-identical to the old prologue. Those six
+functions are the COMPLETE gt-table stat-conversion surface — nothing else
+(combat level, hit vs targets, XP, spell requirements, skill caps) changes.
 
-Measured effect at level 80 (gt tables, extracted from the client; every
-combat rating shares ONE curve, which is why one addon factor per tier
-suffices):
+Measured effect at level 80 (gt tables extracted from the production 3.3.5a
+data). Track totals are 0/2/4/5 and Timeless Body contributes 0–3, so every
+total from **0 through 8** is reachable. The rating column is the shared
+presentation factor used by the addon; tiny per-rating DBC float differences
+are below the character sheet's precision. Agility is class-specific, so its
+column shows the Paladin delta; the addon carries the corresponding table for
+every class. The Intellect delta is shared by mana classes.
 
-| reduction | ratings | agi→crit Δ/pt (pala) | int→crit Δ/pt (pala) | spirit→mana | spirit→health |
+| reduction | ratings | agi→crit Δ/pt (pala) | int→crit Δ/pt | spirit→mana | spirit→health |
 |---|---|---|---|---|---|
-| −2 (500) | ×1.157674 | +0.0030 | +0.0010 | ×1.1085 | flat |
-| −4 (500+800) | ×1.340208 | +0.0066 | +0.0021 | ×1.2287 | flat |
+| 0 | ×1.0000000 | +0.0000 | +0.0000 | ×1.0000000 | flat |
+| −1 | ×1.0759524 | +0.0014 | +0.0005 | ×1.0529148 | flat |
+| −2 | ×1.1576737 | +0.0030 | +0.0010 | ×1.1085202 | flat |
+| −3 | ×1.2456018 | +0.0048 | +0.0015 | ×1.1668161 | flat |
+| −4 | ×1.3402085 | +0.0066 | +0.0021 | ×1.2286995 | flat |
+| −5 | ×1.4420001 | +0.0083 | +0.0027 | ×1.2935725 | flat |
+| −6 | ×1.5515238 | +0.0107 | +0.0033 | ×1.3617339 | flat |
+| −7 | ×1.6693660 | +0.0129 | +0.0041 | ×1.4337818 | flat |
+| −8 | ×1.7961585 | +0.0154 | +0.0048 | ×1.5094170 | flat |
 
-At −10 every rating is ×2.08 — the knob is steep.
+Total 0 is the identity state and short-circuits without a table rewrite;
+the production Lua tables therefore need explicit keys 1–8 only.
+
+At the production maximum of −8, rating conversions are about ×1.80 — the
+curve is steep.
 
 Support cast:
-- Both markers ride the `SERVER_SPELLS` generator family (bp = level
-  reduction; retune = row edit + restart, **no rebuild** — but adding a
-  NEW marker id needs the §1g sum-loop extended = rebuild), applied via
-  `SPECIAL_AURAS.SCALING_LEVEL` / `SCALING_LEVEL_2`.
+- All six markers ride the `SERVER_SPELLS` generator family (bp + die = level
+  reduction; retune = row edit + restart, **no rebuild** — but adding a NEW
+  marker id needs the §1g sum-loop extended = rebuild). The reward track owns
+  `SPECIAL_AURAS.SCALING_LEVEL`, `SCALING_LEVEL_2`, and `SCALING_LEVEL_3`;
+  `paragon_codex.lua` owns the three Timeless Body rank auras.
 - The auras are passive-attribute AddAuras → **not saved** to
   character_aura → each login re-adds them AFTER the core computed stats:
-  `paragon_scaling_level.lua` pokes a full refresh whenever the two-marker
-  presence STATE changes (RecalculateRating idiom + ±1 AGI/INT/SPI flat
-  mods).
-- Character-sheet percent values are server fields (correct on their own);
-  the client-computed "X Rating equals Y%" lines are corrected by the
-  addon's `Paragon_ScalingLevel.lua` — `ParagonScalingUnlocked()` returns
-  the SUMMED reduction of all unlocked `SCALING_LEVEL*` rewards (or
-  false), and every factor lives in a table keyed by that sum; the
-  spirit-mana fold in `Paragon_SpiritTooltip.lua` uses the same key.
-  (Tooltip text is REWRITTEN post-hoc — never wrap/replace the Blizzard
-  `GetCombatRatingBonus` global, that was the taint lesson.) **Keep the
-  factor tables in sync with the markers' bp.**
+  `paragon_scaling_level.lua` watches the six-marker presence STATE and pokes
+  a full refresh when it changes (RecalculateRating idiom + ±1 AGI/INT/SPI
+  flat mods).
+- Server-final character-sheet values (dodge/parry/block, crit, attack speed,
+  expertise, and mana regen) already use the lowered level and are never
+  rescaled by the addon. The client-local surfaces are rebuilt after the stock
+  FrameXML setters: the Defense row and tooltip; Hit plus Armor Penetration;
+  Dodge/Parry/Block, Resilience, melee/ranged Crit, all Haste, and Expertise
+  tooltips; and Agility/Intellect contribution lines. Raw rating totals stay
+  unchanged; only their locally converted bonus text is rebuilt. Spell Crit's
+  main/per-school percentages are already server-final, and its stock tooltip
+  has no separate converted-rating line.
+- `ParagonScalingUnlocked()` adds all unlocked `SCALING_LEVEL*` reward amounts
+  to the received rank of every Codex `kind = "scaling"` node (node 51 is the
+  login-order fallback), producing the shared 1–8 table key. The Spirit hook
+  uses the same total independently of milestone 600: mana-from-Spirit gets
+  the 1–8 factor with either ×1 normal Spirit or ×3 Empowered Spirit. Health
+  remains level-flat from effective levels 72–80 and receives only the ×3.
+- Corrections are post-hooks which rebuild localized stock strings. Never
+  wrap/replace Blizzard's `GetCombatRatingBonus` global: that was the taint
+  lesson. **Keep all rating, attribute, and Spirit tables in sync with marker
+  amounts and the production DBCs.**
 
 Reverting = restore the six prologues and drop the helper.
 
@@ -1039,7 +1066,7 @@ adding or editing a row needs a restart.
 | 1900038 | Avenger's Reach | milestone 450 paladin: visible passive carrying **aura 107 (ADD_FLAT_MODIFIER), misc 17 (SPELLMOD_JUMP_TARGETS), +2** with effect masks A/B 0x4000 — the exact inverse of Blizzard's Glyph of Avenger's Shield (54930, −2). Server applies it in `Spell::SelectImplicitChainTargets` (both chaining effects: damage + daze); the client applies it to the "$x1 total targets" tooltip. Flat mods sum (glyph + milestone = stock 3). **SpellClassSet deliberately kept 10** — a spellmod only affects its own family; the §2a zero-the-family rule is inverted for modifier passives (the spell's own SpellClassMask stays 0) |
 | 1900037 | Paragon Slow Attenuation | milestone 425 universal: invisible server-only dummy aura (SERVER_SPELLS generator family — never in the client MPQs); its **bp (24 + die 1 = 25) IS the "slows weakened by N%" knob** read by the §1f `Unit::UpdateSpeed` patch. Applied via `SPECIAL_AURAS.SLOW_ATTENUATION` |
 | 1900071 | Paragon Swift Mount | milestone 750 universal: invisible server-only dummy marker (SERVER_SPELLS family, bp unused) — the §1 mount patch takes another 500ms off mount casts when present, flooring at 0: stacked with 1900005 the standard 1500ms mounts are INSTANT (and castable while moving — the `Spell::prepare` moving gate only applies to nonzero cast times). Applied via `SPECIAL_AURAS.SWIFT_MOUNT` |
-| 1900036 | Empowered Spirit | milestone 375 universal: **3× regen from the same Spirit with NO formula edit** — the core multiplies exactly the spirit-derived regen terms (and nothing else: MP5/food/drinks are added after) by two percent auras: eff1 aura 110 (MOD_POWER_REGEN_PERCENT, misc 0 = mana) at `StatSystem.cpp` `UpdateManaRegen`, eff2 aura 88 (MOD_HEALTH_REGEN_PERCENT) at `Player.cpp` `RegenerateHealth`. Both bp 199 + die 1 = +200%. Visible spellbook passive (Attributes 0x40, Divine Spirit icon 1879, `$s1%` live tooltip), taught via `LEARNED_SPELL_SPECIALS.SPIRIT_REGEN`. Client-computed spirit-stat tooltip corrected by `Paragon_SpiritTooltip.lua` (keep its `MULT` in sync). Casting-regen talents (Meditation-style) and spirit-stat buffs compound by design; pets/creatures and spirit→SP/crit conversions untouched |
+| 1900036 | Empowered Spirit | milestone 600 universal: **3× regen from the same Spirit with NO formula edit** — the core multiplies exactly the spirit-derived regen terms (and nothing else: MP5/food/drinks are added after) by two percent auras: eff1 aura 110 (MOD_POWER_REGEN_PERCENT, misc 0 = mana) at `StatSystem.cpp` `UpdateManaRegen`, eff2 aura 88 (MOD_HEALTH_REGEN_PERCENT) at `Player.cpp` `RegenerateHealth`. Both bp 199 + die 1 = +200%. Visible spellbook passive (Attributes 0x40, Divine Spirit icon 1879, `$s1%` live tooltip), taught via `LEARNED_SPELL_SPECIALS.SPIRIT_REGEN`. Client-computed spirit-stat tooltip corrected by `Paragon_SpiritTooltip.lua`; its ×3 composes with the effective-level mana factors for totals 1–8, while health stays level-flat from 72–80 (keep `MULT` and `SCALING_MANA_FACTOR` in sync). Casting-regen talents (Meditation-style) and spirit-stat buffs compound by design; pets/creatures and spirit→SP/crit conversions untouched |
 
 1900014 (`CUSTOM_SPELLS` in `Tools/paragon_client_patch.py`, cloned from Holy Nova's
 damage sub-spell 48078 with priest family + mana cost zeroed) also owns a
@@ -1260,10 +1287,10 @@ reserved a range that collided with the talent ranks):
 | 1900020–25 | trainer spell ranks |
 | 1900030–32 | Faithful Leap trio |
 | 1900033–35 | **reserved**: future extra-enchant markers (§1e explicit list) |
-| 1900036 | Empowered Spirit (milestone 375: 3× spirit regen via aura 110 + aura 88) |
+| 1900036 | Empowered Spirit (milestone 600: 3× spirit regen via aura 110 + aura 88; client mana tooltip composes with §1g totals 1–8) |
 | 1900037 | Paragon Slow Attenuation (milestone 425: server-only marker, bp = reduction %, §1f) |
 | 1900038 | Avenger's Reach (milestone 450: +2 Avenger's Shield chain targets via SPELLMOD_JUMP_TARGETS; SpellClassSet kept 10 — modifier passives keep their target's family) |
-| 1900039 | Paragon Stat Scaling (milestone 500: server-only marker, bp = levels reduced, §1g; addon factors must track the bp) |
+| 1900039 | Paragon Stat Scaling (milestone 700: server-only marker, −2 effective levels, §1g; addon factors must track the amount) |
 | 1900040 | Living Symbol (milestone 525: aura 256 reagent-free Greater Blessings, mask 0x11010002) |
 | 1900041–44 | Benediction ranks 6–9 (milestone 550, −12/14/16/18%) |
 | 1900045–48 | Divinity ranks 6–9 (milestone 575, +6/7/8/9% dual-field) |
@@ -1274,7 +1301,7 @@ reserved a range that collided with the talent ranks):
 | 1900033, 1900057–66 | Milestone 725 enchant-slot ladder markers (§1e capacity; 1900033 = third weapon slot, 57–66 = chest/legs/hands/feet/wrist/back/head/shoulder/rings/shield; taught by avg-ilvl thresholds in paragon_enchant_slots.lua) |
 | 1900034–35, 1900067–70 | **reserved**: future §1e enchant markers (already compiled into the core array) |
 | 1900071 | Paragon Swift Mount (milestone 750: server-only marker, §1 takes another 0.5s off mount casts — instant with milestone 100) |
-| 1900072 | Paragon Stat Scaling II (milestone 800: server-only marker, clone of 1900039 — §1g sums both to −4 effective levels) |
+| 1900072 | Paragon Stat Scaling II (milestone 925: server-only marker, clone of 1900039 — §1g sums both track markers to −4 effective levels) |
 | 1900073 | Paragon Ghost Sprint (milestone 825: server-only marker, §1i — bp 60 added to run speed while dead + waives spirit-healer resurrection sickness) |
 | 1900074 | Paragon Durability Guard (milestone 850: server-only marker, §1j — bp = percent of durability loss removed in the DurabilityPointsLoss funnel) |
 | 1900075 | Paragon Soft Landing (milestone 875: server-only marker, §1k — bp = percent of fall damage removed in HandleFall) |
@@ -1283,7 +1310,7 @@ reserved a range that collided with the talent ranks):
 | 1900084–85 | Holy Shock R8 hidden sub-spells (damage / heal; spell_ranks chains on 25912/25914 — the core's spell_pal_holy_shock resolves them by rank) |
 | 1900086–90 | Milestone 925 trainer ranks: Flash of Light R11, Avenger's Shield R6, Holy Wrath R6, Blessing of Wisdom R10, Retribution Aura R8 |
 | 1900091–95 | Milestone 950 trainer ranks: Holy Light R15, Exorcism R11, Consecration R10 (burst totals entry 1528 in CONSECRATION_BURST), Devotion Aura R11, Shield of Righteousness R4 |
-| 1900096–98 | Timeless Body I–III (codex node 51: §1g scaling markers — Player.cpp sums all five) |
+| 1900096–98 | Timeless Body I–III (codex node 51: three −1 §1g scaling markers — Player.cpp sums all six track/Codex markers, for up to −8) |
 | 1900099 | Petting Zoo mp5 carrier (codex regen aura — carries the SUMMED mp5 with Meditation via CastCustomSpell bp) |
 | 1900100–03 | Toughness ranks 6–9 (milestone 1025, talent family) |
 | 1900104 | Provocation (milestone 1050: aura 152 detected-range buff + §1m levelDiff clamp) |
@@ -1302,7 +1329,7 @@ reserved a range that collided with the talent ranks):
 | 1900124–28 | Sudden Light ranks 1–5 (milestone 1325: BRAND-NEW talent 2286, passive proc-trigger, ProcChance 2/4/6/8/10) |
 | 1900129 | Sudden Light buff (instant next Holy Light: aura 108 misc 10 SPELLMOD_CASTING_TIME −100%, 1 charge, 15s) |
 | 1900130 | Paragon Skies of Azeroth (codex node 59 flight marker, read by core patch 1r) |
-| 1900131 | Paragon Stat Scaling III (milestone 1350: bp 0 + die 1 = **1** effective level, vs 2 for 1900039/1900072) |
+| 1900131 | Paragon Stat Scaling III (milestone 1350: bp 0 + die 1 = **1** effective level, vs 2 for 1900039/1900072; track total −5, or −8 with Timeless Body III) |
 | 1900132–33 | One-Handed Weapon Specialization ranks 4–5 (milestone 1375, 13%/16%) |
 | 1900134–35 | Two-Handed Weapon Specialization ranks 4–5 (milestone 1375, 8%/10%) |
 | 1900136–37 | Combat Expertise ranks 4–5 (milestone 1375, 8/10 — all three effects moved together) |
@@ -2099,16 +2126,25 @@ appears in *all three*:
 
 The core one means this milestone needs a **rebuild**, not just data.
 
-**Client tooltip factors must be recomputed too.** `Paragon_ScalingLevel.lua`
-`RATING_FACTOR` and `Paragon_SpiritTooltip.lua` `SCALING_MANA_FACTOR` are keyed
-by the *total* reduction, so both needed a `[5]` entry:
+**Client conversion tables use the combined total, not merely the milestone
+total.** `Paragon_ScalingLevel.lua` adds the unlocked 700/925/1350 rewards
+(0/2/4/5) to Timeless Body's 0–3 ranks, making every total **0–8** reachable.
+Consequently its rating and class-specific Agility/Intellect tables, and
+`Paragon_SpiritTooltip.lua`'s mana table, contain keys `[1]` through `[8]`;
+total 0 is the identity and intentionally performs no rewrite. The corrected
+−5 entries are:
 
-- `RATING_FACTOR[5] = 1.441893` — `gtCombatRatings` `ratio(80) / ratio(80-n)`
-- `SCALING_MANA_FACTOR[5] = 1.293572` — `gtRegenMPPerSpt`, same rows, *not* inverted
+- `RATING_FACTOR[5] = 1.4420001` — `gtCombatRatings`
+  `ratio(80) / ratio(75)` (the production table uses one presentation factor;
+  per-rating stored-float differences are below PaperDoll precision)
+- `SCALING_MANA_FACTOR[5] = 1.2935725` — `gtRegenMPPerSpt`
+  `ratio(75) / ratio(80)`, deliberately not inverted
 
-Method verified by reproducing the existing entries exactly (1.157674 at −2 and
-1.340208 at −4; mana 1.1085 / 1.2287). Reachable totals are only {2, 4, 5}
-because milestones unlock in order, so there is no gap at 3.
+The full 1–8 values and attribute deltas live in §1g. Corrections rebuild every
+active client-local PaperDoll conversion: Defense, Hit/Armor Penetration,
+Dodge/Parry/Block, Resilience, melee/ranged Crit, all Haste, Expertise,
+Agility/Intellect, and Spirit. The Spirit mana factor applies even before
+Empowered Spirit; milestone 600's ×3 then composes with it.
 
 ### 1375 "Master at Arms" — three talent caps +2
 
@@ -3436,9 +3472,10 @@ and the compose override backups. All must keep surviving future merges.
 
 The milestone track was reordered wholesale (design pass: recurring reward
 types spread out, class/generic alternating, QoL roughly every 4th slot,
-collection-scaling ladders at the century marks of the first half). Any
-section ABOVE this one that names a milestone level refers to the
-PRE-reorder track. Old -> new:
+collection-scaling ladders at the century marks of the first half). This table
+preserves the historical old → new mapping. Sections explicitly marked as
+historical retain old levels; normative sections above use current production
+levels. Old → new:
 
 | old | new | reward | | old | new | reward |
 |---|---|---|---|---|---|---|
